@@ -11,7 +11,7 @@ services:
     environment:
       ADAPTER: ${ADAPTER:-stub}
       STUB_STAGE_DELAY_S: ${STUB_STAGE_DELAY_S:-1.5}
-      CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-8080},http://localhost:5173
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${FRONTEND_PORT:-8080},http://localhost:5173}   # 部署到雲端時在 .env 填公開網址（走 nginx 同源代理時其實用不到）
     ports:
       - "${BACKEND_PORT:-8000}:8000"   # 直接 curl 後端用；前端不靠這個
     restart: unless-stopped
