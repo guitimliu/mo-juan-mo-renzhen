@@ -44,18 +44,22 @@ async function submit() {
 </template>
 
 <style scoped>
-.login-shell{min-height:100vh;display:grid;place-items:center;padding:24px;background:linear-gradient(160deg,#eef2f7,#f8fafc)}
-.login-card{width:min(420px,100%);background:#fff;border:1px solid var(--border);border-radius:16px;padding:32px 30px;display:grid;gap:14px;box-shadow:0 12px 40px rgba(24,44,72,.08)}
+/* 寬度一律以視窗為上限：shell 不得撐出水平捲軸，card 用 max-width，內部 grid／flex 子元素 min-width:0 才能縮 */
+.login-shell{box-sizing:border-box;width:100%;max-width:100%;min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:24px 16px;overflow-x:hidden;background:linear-gradient(160deg,#eef2f7,#f8fafc)}
+.login-card{box-sizing:border-box;width:100%;max-width:420px;min-width:0;background:#fff;border:1px solid var(--border);border-radius:16px;padding:32px 30px;display:grid;gap:14px;box-shadow:0 12px 40px rgba(24,44,72,.08)}
+.login-card>*{min-width:0;max-width:100%}
 .login-brand{display:flex;align-items:center;gap:12px;margin-bottom:4px}
-.login-brand .brand-symbol{width:44px;height:44px;border-radius:12px;background:var(--navy);color:#fff;display:grid;place-items:center}
+.login-brand>div{min-width:0}
+.login-brand .brand-symbol{flex:none;width:44px;height:44px;border-radius:12px;background:var(--navy);color:#fff;display:grid;place-items:center}
 .login-brand b{display:block;font-size:16px;color:var(--navy)}
-.login-brand small{color:var(--muted)}
+.login-brand small{display:block;color:var(--muted);overflow-wrap:anywhere}
 h1{margin:6px 0 0;font-size:22px;color:var(--navy)}
-.muted{color:var(--muted);margin:0;line-height:1.6}
-label{display:grid;gap:6px;font-weight:500;color:#3a4a62}
-input{border:1px solid var(--border);border-radius:10px;padding:11px 12px;font-size:15px;font-family:inherit;background:#fbfcfe}
+.muted{color:var(--muted);margin:0;line-height:1.6;overflow-wrap:anywhere}
+label{display:grid;gap:6px;font-weight:500;color:#3a4a62;min-width:0}
+input{box-sizing:border-box;width:100%;min-width:0;border:1px solid var(--border);border-radius:10px;padding:11px 12px;font-size:15px;font-family:inherit;background:#fbfcfe}
 input:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:var(--teal)}
-.login-error{display:flex;align-items:center;gap:8px;color:#a13c2e;background:#fdf1ee;border:1px solid #f3cfc7;border-radius:10px;padding:9px 12px;font-size:14px}
-.button{justify-content:center}
-.login-foot{text-align:center;color:var(--muted)}
+.login-error{display:flex;align-items:center;gap:8px;color:#a13c2e;background:#fdf1ee;border:1px solid #f3cfc7;border-radius:10px;padding:9px 12px;font-size:14px;overflow-wrap:anywhere}
+.button{justify-content:center;width:100%}
+.login-foot{text-align:center;color:var(--muted);overflow-wrap:anywhere}
+@media (max-width:480px){.login-card{padding:24px 18px;border-radius:12px}}
 </style>
