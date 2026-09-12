@@ -37,3 +37,5 @@
 @media(max-width:680px){.case-banner.demo-context p{display:block;font-size:14px}.case-banner.demo-context{padding:16px}.pipeline button{min-width:132px}.step-actions .button{white-space:normal;text-align:center}.brand small{letter-spacing:0}}
 @media(max-width:680px){.draft-layout,.ocr-layout,.retrieval-grid,.evidence-column{grid-template-columns:minmax(0,1fr)}.document-panel,.evidence-column,.evidence-panel,.source-list,.source-list button,.source-list button>span,.source-detail{min-width:0;max-width:100%;overflow-wrap:anywhere}.document-toolbar,.document-foot,.draft-section-title,.paper-meta>div{flex-wrap:wrap;gap:8px}.citation-chips button{max-width:100%;white-space:normal;text-align:left}.decision-paper{padding:24px 18px}.step-actions{max-width:100%}}
 .demo-file-actions{display:flex;gap:12px;flex-wrap:wrap;padding:24px}.demo-file-actions .button{min-height:44px}@media(max-width:680px){.demo-file-actions .button{width:100%;white-space:normal}}
+
+.nav-link{text-decoration:none;margin-top:6px;opacity:.9}.nav-link svg:last-child{margin-left:auto;opacity:.7}

@@ -16,6 +16,7 @@ const authRequired = ref(false)
 const loggedIn = ref(!!getToken())
 const currentUser = ref('')
 const showLogin = computed(() => authRequired.value && !loggedIn.value)
+const slidesUrl = `${import.meta.env.BASE_URL}slides/`   // Slidev 簡報：Docker 內由 nginx 代理到 slides 容器；本機 dev 需另起 slides（npm run dev）
 const processingError = ref('')
 const pii = ref<CaseEnvelope['pii']>(null)
 const piiLabel = computed(() => pii.value ? `已去識別化（${pii.value.mode === 'pseudonym' ? '取代法' : pii.value.mode}）：${Object.entries(pii.value.replaced || {}).filter(([, n]) => n).map(([k, n]) => `${({ name: '姓名', id: '身分證', phone: '電話', address: '地址', dob: '生日' } as Record<string, string>)[k] || k}×${n}`).join('、')}` : '')
@@ -340,6 +341,7 @@ onUnmounted(() => { window.removeEventListener('beforeunload', warnBeforeLeaving
       <a class="brand" href="#" @click.prevent="active = 0"><span class="brand-symbol"><Icon name="scales" :size="25" /></span><span>訴願審查助手<small>智慧案件審查工作台</small></span></a>
       <div class="workspace-label">法制局工作空間</div>
       <button class="nav-main" @click="active = ready ? 1 : 0"><Icon name="grid" />案件工作台<span class="nav-dot"></span></button>
+      <a class="nav-main nav-link" :href="slidesUrl" target="_blank" rel="noopener" title="開新分頁檢視專案簡報"><Icon name="book" />專案簡報<Icon name="arrow" :size="14" /></a>
       <div class="side-divider"></div>
       <div class="side-heading">目前案件 <span>01</span></div>
       <button class="case-nav" @click="active = ready ? 1 : 0"><Icon name="file" /><span><b>{{ caseLabel }}</b><small>{{ caseTitle }}</small></span></button>

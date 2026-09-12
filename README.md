@@ -17,11 +17,12 @@ data/       statutes.json（全量 2,214 條）、precedents.json、petitions.js
 
 ```bash
 cp .env.example .env          # stub 模式留預設即可；要接 Bedrock 再填 ADAPTER=bedrock 與 AWS 憑證；要登入頁再填 AUTH_USERNAME／AUTH_PASSWORD
-docker compose up --build     # 前端 http://localhost:8080（/api 由 nginx 反向代理到 backend）；後端另外開 8000 供 curl
+docker compose up --build     # 前端 http://localhost:8080（/api → backend、/slides/ → 簡報，都由 nginx 反向代理）；後端另外開 8000 供 curl
 ```
 
 - `backend/Dockerfile`：python:3.12-slim + uvicorn，把 `data/` 一起包進去（`DATA_DIR=/app/data`），有 healthcheck。
-- `f2e/Dockerfile`：node 22 建 `dist/` → nginx（`f2e/nginx.conf`：`/api/` → `backend:8000`，上傳上限 25 MB）。前端 build 時 `VITE_API_BASE_URL` 留空＝同源呼叫。
+- `f2e/Dockerfile`：node 22 建 `dist/` → nginx（`f2e/nginx.conf`：`/api/` → `backend:8000`、`/slides/` → `slides:80`，上傳上限 25 MB）。前端 build 時 `VITE_API_BASE_URL` 留空＝同源呼叫。
+- `slides/Dockerfile`：Slidev `build --base /slides/` → nginx；前端側欄「專案簡報」開新分頁到 http://localhost:8080/slides/ 。
 - 埠被占用就在 `.env` 改 `FRONTEND_PORT`／`BACKEND_PORT`。
 
 ## 本機開發（兩個終端）
@@ -44,5 +45,5 @@ cd f2e && npm install && cp .env.example .env && npm run dev
 
 ## 啟動簡報
 
-在 `slides/` 執行 `npm ci`，再執行 `npm run dev`。
+Docker：隨 `docker compose up --build` 一起起，http://localhost:8080/slides/ 。本機：在 `slides/` 執行 `npm ci`，再執行 `npm run dev`。
 內容編輯、建置與影片說明見 [簡報 README](slides/README.md)。
