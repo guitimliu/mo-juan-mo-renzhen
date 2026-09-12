@@ -17,6 +17,8 @@ const loggedIn = ref(!!getToken())
 const currentUser = ref('')
 const showLogin = computed(() => authRequired.value && !loggedIn.value)
 const processingError = ref('')
+const pii = ref<CaseEnvelope['pii']>(null)
+const piiLabel = computed(() => pii.value ? `已去識別化（${pii.value.mode === 'pseudonym' ? '取代法' : pii.value.mode}）：${Object.entries(pii.value.replaced || {}).filter(([, n]) => n).map(([k, n]) => `${({ name: '姓名', id: '身分證', phone: '電話', address: '地址', dob: '生日' } as Record<string, string>)[k] || k}×${n}`).join('、')}` : '')
 const sources = computed(() => view.value.sources)
 const draft = computed(() => view.value.draft)
 const checks = computed(() => view.value.checks)
@@ -158,6 +160,7 @@ function reset() {
   view.value = empty()
   dataSource.value = 'fixture'
   caseId.value = ''
+  pii.value = null
   fileErrors.value = ['', '']
   documentIndex.value = 0
   filter.value = '全部'
@@ -270,6 +273,7 @@ async function runDemo() {
       if (myRun !== run) return
       view.value = buildView(stagesFrom(env))
       adapterMode.value = env.adapter_mode || adapterMode.value
+      pii.value = env.pii ?? null
       progress.value = progressFrom(env)
       if (env.status === 'done') {
         clearInterval(timer)
@@ -373,7 +377,7 @@ onUnmounted(() => { window.removeEventListener('beforeunload', warnBeforeLeaving
         </template>
 
         <template v-else-if="active === 1">
-          <div class="document-tabs"><button v-for="(name, i) in ['訴願書', '原處分書']" :key="name" :class="{ active: documentIndex === i }" @click="documentIndex = i">{{ name }}</button></div><div class="ocr-layout"><section class="panel"><div class="panel-title"><Icon name="file" /><h3>原始文件</h3><DocumentZoom :src="previews[documentIndex] || ''" :title="documentIndex === 0 ? '訴願書' : '原處分書'" /></div><div class="scan-preview"><img v-if="previews[documentIndex]" :src="previews[documentIndex]" alt="所選文件預覽" /><div v-else class="sample-document"><span class="sample-stamp">模擬文件</span><h3>{{ documentIndex === 0 ? '訴 願 書' : '書 面 告 誡' }}</h3><p>{{ documentIndex === 0 ? ocrText : dispositionText }}</p></div></div></section><section class="panel"><div class="panel-title"><Icon name="scan" /><h3>辨識結果</h3></div><div class="ocr-content"><p>{{ documentIndex === 0 ? ocrText : dispositionText }}</p><h4>擷取欄位</h4><dl class="fields"><div><dt>訴願人</dt><dd>{{ summary.appellant.name || '—' }}</dd></div><div><dt>案件類型</dt><dd>{{ summary.case_type || '—' }}</dd></div><div><dt>核心主張</dt><dd>{{ summary.appellant_claims.join('、') }}</dd></div></dl></div></section></div>
+          <div class="document-tabs"><button v-for="(name, i) in ['訴願書', '原處分書']" :key="name" :class="{ active: documentIndex === i }" @click="documentIndex = i">{{ name }}</button></div><div class="ocr-layout"><section class="panel"><div class="panel-title"><Icon name="file" /><h3>原始文件</h3><DocumentZoom :src="previews[documentIndex] || ''" :title="documentIndex === 0 ? '訴願書' : '原處分書'" /></div><div class="scan-preview"><img v-if="previews[documentIndex]" :src="previews[documentIndex]" alt="所選文件預覽" /><div v-else class="sample-document"><span class="sample-stamp">模擬文件</span><h3>{{ documentIndex === 0 ? '訴 願 書' : '書 面 告 誡' }}</h3><p>{{ documentIndex === 0 ? ocrText : dispositionText }}</p></div></div></section><section class="panel"><div class="panel-title"><Icon name="scan" /><h3>辨識結果</h3><span v-if="pii" class="tag green" :title="piiLabel">{{ piiLabel }}</span></div><div class="ocr-content"><p>{{ documentIndex === 0 ? ocrText : dispositionText }}</p><h4>擷取欄位</h4><dl class="fields"><div><dt>訴願人</dt><dd>{{ summary.appellant.name || '—' }}</dd></div><div><dt>案件類型</dt><dd>{{ summary.case_type || '—' }}</dd></div><div><dt>核心主張</dt><dd>{{ summary.appellant_claims.join('、') }}</dd></div></dl></div></section></div>
         </template>
 
         <template v-else-if="active === 2">
