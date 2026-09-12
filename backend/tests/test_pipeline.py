@@ -383,3 +383,59 @@ def test_bedrock_full_pipeline_all_stages_done(store, images):
     assert env["stages"]["S3"]["data"]["statutes"][0]["article"] == "22"
     assert env["stages"]["S4"]["data"]["holding"] == "訴願駁回。"
     assert env["stages"]["S5"]["data"]["summary"]["holding_match"] is True
+
+
+class _DenyingClient(_FakeBedrockClient):
+    """模擬帳戶拿不到預設模型：第一個 model_id 回 AccessDenied，備援模型正常。"""
+
+    def __init__(self, replies, denied):
+        super().__init__(replies)
+        self.denied = denied
+
+    def converse(self, **kw):
+        if kw["modelId"] == self.denied:
+            self.calls.append(kw)
+            from botocore.exceptions import ClientError
+            raise ClientError({"Error": {"Code": "AccessDeniedException", "Message": f"{self.denied} is not available for this account."}}, "Converse")
+        return super().converse(**kw)
+
+
+def test_bedrock_model_fallback_on_access_denied(monkeypatch):
+    from app.adapters import bedrock
+    bedrock.limiter.min_interval_s = 0
+    monkeypatch.setattr(bedrock, "FALLBACK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+    monkeypatch.setattr(bedrock, "_model_fallbacks", {})
+    client = _DenyingClient(['{"text": "ok", "low_confidence": []}'] * 2, denied="us.anthropic.claude-sonnet-5")
+    ocr = bedrock.BedrockOCR(client=client, model_id="us.anthropic.claude-sonnet-5")
+    s1 = asyncio.run(ocr.run("poc-f", [UploadedImage("petition_image", "a.png", "image/png", 1, b"x")]))
+    assert [c["modelId"] for c in client.calls] == ["us.anthropic.claude-sonnet-5", "us.anthropic.claude-sonnet-4-6"]
+    assert "claude-sonnet-4-6" in s1["ocr_confidence_note"]                 # 備註寫實際模型
+    assert bedrock.model_config()["fallbacks_in_effect"] == {"us.anthropic.claude-sonnet-5": "us.anthropic.claude-sonnet-4-6"}
+    # 第二次直接用備援，不再撞一次 AccessDenied
+    asyncio.run(ocr.run("poc-g", [UploadedImage("petition_image", "b.png", "image/png", 1, b"x")]))
+    assert client.calls[-1]["modelId"] == "us.anthropic.claude-sonnet-4-6" and len(client.calls) == 3
+
+
+def test_bedrock_no_fallback_when_disabled(monkeypatch):
+    from app.adapters import bedrock
+    bedrock.limiter.min_interval_s = 0
+    monkeypatch.setattr(bedrock, "FALLBACK_MODEL_ID", "")
+    monkeypatch.setattr(bedrock, "_model_fallbacks", {})
+    client = _DenyingClient([], denied="us.anthropic.claude-sonnet-5")
+    ocr = bedrock.BedrockOCR(client=client, model_id="us.anthropic.claude-sonnet-5")
+    with pytest.raises(Exception, match="AccessDenied"):
+        asyncio.run(ocr.run("poc-h", [UploadedImage("petition_image", "a.png", "image/png", 1, b"x")]))
+
+
+def test_health_reports_models_in_bedrock_mode(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.adapters import bedrock
+    from app.adapters.base import AdapterSet
+    from app.main import create_app
+    monkeypatch.setattr(bedrock, "_model_fallbacks", {})
+    adapters = AdapterSet(mode="bedrock", ocr=bedrock.BedrockOCR(client=object()), extract=bedrock.BedrockExtract(client=object()),
+                          retrieval=bedrock.BedrockRetrieval(agent_client=object(), client=object()), generate=bedrock.BedrockGenerate(client=object()))
+    h = TestClient(create_app(adapters=adapters, delay_s=0)).get("/api/health").json()
+    assert h["adapter_mode"] == "bedrock" and h["models"]["default"] == bedrock.MODEL_ID
+    assert set(h["models"]["stages"]) == {"ocr", "extract", "retrieval", "generate"}
+    assert "models" not in TestClient(create_app(adapters=stub.make_adapters(), delay_s=0)).get("/api/health").json()

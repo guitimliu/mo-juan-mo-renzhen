@@ -32,14 +32,20 @@ from .base import UploadedImage
 log = logging.getLogger(__name__)
 
 REGION = os.environ.get("BEDROCK_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-west-2"))
-# Claude 系列在 Bedrock 要用 us. 開頭的 cross-region inference profile，不能用裸 anthropic.xxx
-OCR_MODEL_ID = os.environ.get("BEDROCK_OCR_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+# ---- 模型設定（全部可用環境變數覆寫）----
+# Claude 在 Bedrock 要用 us. 開頭的 cross-region inference profile，不能用裸 anthropic.xxx。
+# BEDROCK_MODEL_ID 是四個階段的共同預設；BEDROCK_<STAGE>_MODEL_ID 可個別覆寫。
+# 帳戶拿不到預設模型（AccessDeniedException：not available for this account）時自動降到 BEDROCK_FALLBACK_MODEL_ID，
+# 並在 log 與 /api/health 標示；設成空字串就關掉降級。
+MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-5")
+FALLBACK_MODEL_ID = os.environ.get("BEDROCK_FALLBACK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+OCR_MODEL_ID = os.environ.get("BEDROCK_OCR_MODEL_ID", MODEL_ID)
+EXTRACT_MODEL_ID = os.environ.get("BEDROCK_EXTRACT_MODEL_ID", MODEL_ID)
+RETRIEVAL_MODEL_ID = os.environ.get("BEDROCK_RETRIEVAL_MODEL_ID", MODEL_ID)     # 只做篩選＋why_similar，想省錢可設 Haiku
+GENERATE_MODEL_ID = os.environ.get("BEDROCK_GENERATE_MODEL_ID", MODEL_ID)
 OCR_MAX_TOKENS = int(os.environ.get("BEDROCK_OCR_MAX_TOKENS", "4096"))
-EXTRACT_MODEL_ID = os.environ.get("BEDROCK_EXTRACT_MODEL_ID", OCR_MODEL_ID)
-KB_ID = os.environ.get("BEDROCK_KB_ID", "ZOMMOWFOT2")
-GENERATE_MODEL_ID = os.environ.get("BEDROCK_GENERATE_MODEL_ID", OCR_MODEL_ID)
 GENERATE_MAX_TOKENS = int(os.environ.get("BEDROCK_GENERATE_MAX_TOKENS", "6000"))
-RETRIEVAL_MODEL_ID = os.environ.get("BEDROCK_RETRIEVAL_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")   # 只寫 why_similar，用便宜的
+KB_ID = os.environ.get("BEDROCK_KB_ID", "ZOMMOWFOT2")
 MAX_RETRIES = 4
 
 
@@ -89,9 +95,31 @@ def get_agent_client():
     return _agent_client
 
 
+_model_fallbacks: dict[str, str] = {}      # 被拒的 model_id → 實際改用的 model_id（process 內記住，不重複試）
+
+
+def resolve_model(model_id: str) -> str:
+    return _model_fallbacks.get(model_id, model_id)
+
+
+def model_config() -> dict:
+    """給 /api/health：各階段設定的模型、實際使用的模型（降級後）與備援。"""
+    stages = {"ocr": OCR_MODEL_ID, "extract": EXTRACT_MODEL_ID, "retrieval": RETRIEVAL_MODEL_ID, "generate": GENERATE_MODEL_ID}
+    return {"default": MODEL_ID, "fallback": FALLBACK_MODEL_ID or None, "kb_id": KB_ID, "region": REGION,
+            "stages": {k: {"configured": v, "active": resolve_model(v)} for k, v in stages.items()},
+            "fallbacks_in_effect": dict(_model_fallbacks)}
+
+
+def _is_model_unavailable(code: str, message: str) -> bool:
+    msg = message.lower()
+    return (code == "AccessDeniedException" and ("not available" in msg or "access" in msg)) \
+        or (code in ("ResourceNotFoundException", "ValidationException") and "model" in msg)
+
+
 async def converse(client, model_id: str, messages: list[dict], system: str | None = None,
                    max_tokens: int = 4096, temperature: float = 0.0) -> str:
-    """呼叫 Converse API，回第一段文字。自帶 1 RPS 限流 + Throttling 指數退避。"""
+    """呼叫 Converse API，回第一段文字。自帶 1 RPS 限流 + Throttling 指數退避 + 模型不可用時降級。"""
+    model_id = resolve_model(model_id)
     kwargs = {"modelId": model_id, "messages": messages,
               "inferenceConfig": {"maxTokens": max_tokens, "temperature": temperature}}
     if system:
@@ -104,7 +132,15 @@ async def converse(client, model_id: str, messages: list[dict], system: str | No
             log.info("bedrock %s in=%s out=%s", model_id, usage.get("inputTokens"), usage.get("outputTokens"))
             return "".join(c.get("text", "") for c in resp["output"]["message"]["content"])
         except Exception as e:  # botocore ClientError 也走這裡；用名稱判斷免得 import botocore
-            code = getattr(e, "response", {}).get("Error", {}).get("Code", type(e).__name__)
+            err = getattr(e, "response", {}).get("Error", {})
+            code, message = err.get("Code", type(e).__name__), str(err.get("Message") or e)
+            if _is_model_unavailable(code, message) and FALLBACK_MODEL_ID and model_id != FALLBACK_MODEL_ID:
+                log.warning("模型 %s 此帳戶不可用（%s），降級改用 %s", model_id, code, FALLBACK_MODEL_ID)
+                for k, v in list(_model_fallbacks.items()) + [(model_id, model_id)]:
+                    if v == model_id:
+                        _model_fallbacks[k] = FALLBACK_MODEL_ID
+                model_id = kwargs["modelId"] = FALLBACK_MODEL_ID
+                continue
             if code not in ("ThrottlingException", "ServiceUnavailableException", "ModelNotReadyException") \
                     or attempt == MAX_RETRIES:
                 raise
@@ -203,7 +239,7 @@ class BedrockOCR:
             "case_id": case_id,
             "petition_text": results["petition_image"]["text"],
             "disposition_text": results["disposition_image"]["text"],
-            "ocr_confidence_note": f"模型 {self.model_id}；" + "；".join(notes),
+            "ocr_confidence_note": f"模型 {resolve_model(self.model_id)}；" + "；".join(notes),
         }
 
 
@@ -570,7 +606,7 @@ class BedrockRetrieval:
             "precedents": precedents,
             "interpretations": interpretations,
             "similar_cases": similar,
-            "note": f"KB {self.kb_id} 向量檢索（Titan v2）；法條查 statutes.json；已排除本案決定書 {sorted(own) or '無'}",
+            "note": f"KB {self.kb_id} 向量檢索（Titan v2）；篩選模型 {resolve_model(self.model_id)}；法條查 statutes.json；已排除本案決定書 {sorted(own) or '無'}",
         }
 
 
@@ -706,5 +742,5 @@ class BedrockGenerate:
         model_gaps = [str(g) for g in (draft.get("gaps") or []) if str(g).strip()]
         draft["gaps"] = _stub.find_gaps(draft, s3) + [g for g in model_gaps if g not in _stub.find_gaps(draft, s3)]
         draft["outcome"] = decision
-        draft["provenance"] = f"bedrock：{self.model_id} 生成；主文／教示／表頭由規則覆寫，citations 由本文比對檢索結果產生"
+        draft["provenance"] = f"bedrock：{resolve_model(self.model_id)} 生成；主文／教示／表頭由規則覆寫，citations 由本文比對檢索結果產生"
         return draft

@@ -27,7 +27,7 @@ python -m app.fixture                                 # 用 stub pipeline 重產
 
 | 方法 | 路徑 | 說明 |
 |---|---|---|
-| GET | `/api/health` | `{status:"ok", adapter_mode:"stub"\|"bedrock"}` |
+| GET | `/api/health` | `{status:"ok", adapter_mode:"stub"\|"bedrock", models?:{…}}`（bedrock 模式多回各階段模型與降級狀態） |
 | POST | `/api/cases` | multipart `petition_image`、`disposition_image`（JPG/PNG/WebP，各 ≤ 10 MB）＋選填 `service_date`（前端「送達日期」欄；YYYY-MM-DD 或民國 YYY-MM-DD，解析失敗 422）→ **202** `{case_id}`；pipeline 在 BackgroundTasks 跑 |
 | GET | `/api/cases/{case_id}` | 附錄 A envelope：`{case_id, status, current_stage, adapter_mode, created_at, updated_at, stages{S1,S2,S2_5,S3,S4,S5:{status,data,error,elapsed_ms}}, error}`；不存在 404 |
 | GET | `/api/cases` | `{cases:[envelope 去掉 stages.data]}`，新的在前（demo 用） |
@@ -51,7 +51,7 @@ app/
   adapters/
     base.py        Protocol：OCRAdapter / ExtractAdapter / RetrievalAdapter / GenerateAdapter（全部 async run）
     stub.py        四個 Stub*，內容從 ../data 讀
-    bedrock.py     OCR（Claude 多模態）、Extract（Claude → S2 JSON ＋ rules.py 補漏）、Retrieval（KB 三次 retrieve ＋ statutes.json 查表 ＋ Haiku 篩選／寫 why_similar）、Generate（主文由 S2.5 規則決定，Claude 依 09＋04＋05 生成，citations/gaps 走 stub 同一套後處理）四段全部接 AWS；共用 1 RPS RateLimiter＋Throttling 退避
+    bedrock.py     OCR（Claude 多模態）、Extract（Claude → S2 JSON ＋ rules.py 補漏）、Retrieval（KB 三次 retrieve ＋ statutes.json 查表 ＋ Claude 篩選／寫 why_similar）、Generate（主文由 S2.5 規則決定，Claude 依 09＋04＋05 生成，citations/gaps 走 stub 同一套後處理）四段全部接 AWS；共用 1 RPS RateLimiter＋Throttling 退避
 tools/
   extract_statutes.py    相關法規 PDF → data/statutes.json（洗防法 22；訴願法 14/18/77/79/81；行政程序法 74/96/114；行政罰法 7）
   extract_precedents.py  判解 PDF → data/precedents.json（最高行 108 判 531、109 上 780、北高行 114 簡上 13）
@@ -108,18 +108,21 @@ uv pip install -r requirements.txt            # 多了 boto3
 export AWS_PROFILE=hackathon                  # ~/.aws/credentials 的 profile；或直接 export AWS_ACCESS_KEY_ID／SECRET／SESSION_TOKEN
 ADAPTER=bedrock uvicorn app.main:app --reload --port 8000
 ```
-- 環境變數：`BEDROCK_REGION`（預設 us-west-2）、`BEDROCK_OCR_MODEL_ID`（預設 `us.anthropic.claude-sonnet-4-5-20250929-v1:0`；Claude 要用 `us.` 開頭的 inference profile）、`BEDROCK_OCR_MAX_TOKENS`（4096）、`BEDROCK_EXTRACT_MODEL_ID`（預設同 OCR）、`BEDROCK_KB_ID`（預設 `ZOMMOWFOT2`）、`BEDROCK_RETRIEVAL_MODEL_ID`（預設 Haiku 4.5，只做篩選與 why_similar）、`BEDROCK_GENERATE_MODEL_ID`（預設同 OCR）、`BEDROCK_GENERATE_MAX_TOKENS`（6000）。
+- **模型設定（使用者可自行設定）**：`BEDROCK_MODEL_ID` 是四階段共同預設（**`us.anthropic.claude-sonnet-5`**）；`BEDROCK_OCR_MODEL_ID`／`BEDROCK_EXTRACT_MODEL_ID`／`BEDROCK_RETRIEVAL_MODEL_ID`／`BEDROCK_GENERATE_MODEL_ID` 可個別覆寫（Claude 要用 `us.` 開頭的 inference profile）。`BEDROCK_FALLBACK_MODEL_ID`（預設 `us.anthropic.claude-sonnet-4-6`）：預設模型在此帳戶被拒（`AccessDeniedException: not available for this account`）時自動降級並記住，log 有 WARNING，`GET /api/health` 的 `models.fallbacks_in_effect` 會列出；設空字串關掉。其他：`BEDROCK_REGION`（us-west-2）、`BEDROCK_KB_ID`（`ZOMMOWFOT2`）、`BEDROCK_OCR_MAX_TOKENS`（4096）、`BEDROCK_GENERATE_MAX_TOKENS`（6000）。
+- **黑客松帳戶現況**：Sonnet 5／Opus 5／Fable 5.1 在 Workshop 帳戶回 AccessDenied（模型協議已接受仍被拒，屬帳戶層級封鎖，需 AWS 開通）；可用的最新是 Sonnet 4.6、Opus 4.6、Sonnet 4.5、Haiku 4.5。所以目前實際跑的是 **Sonnet 5 → 自動降級 Sonnet 4.6**；換到正式帳戶不用改設定。
+- `GET /api/health` 在 bedrock 模式多回 `models`：`{default, fallback, kb_id, region, stages{ocr|extract|retrieval|generate: {configured, active}}, fallbacks_in_effect}`。
 - OCR 每個欄位（訴願書／告誡）各打一次 Converse，同欄位多張影像視為連續頁面合併；模型回 `{text, low_confidence, note}`，低信心片段與觀察寫進 `ocr_confidence_note`。
 - 實測列印體 113-16 兩份文件：約 36 s、4k input tokens；訴願書逐字全對，告誡只錯罕見字「嗣」。主辦方憑證是臨時的（ASIA…），過期要重取。
 - Extract 一次 Converse（約 10 s、2.2k input tokens）：S1 兩份全文 → S2 JSON；`normalize_s2()` 補齊缺 key、日期正規化為 YYY-MM-DD、`service_method` 限 direct/deposit，並用 `rules.py` 從原文補 addressee／事實／日期；模型不確定的欄位列在 `uncertain`。實測 113-16：結構欄位與 03 規格範例逐字一致，S2.5 四項全 PASS。
-- Retrieval（約 7–10 s）：查詢字串由 S2 的案由／處分依據／事實／主張／爭點組成，對 KB 依 `category` 各 retrieve 一次（判解 8、函釋 6、決定書 12 個 chunk），同一份文件多 chunk 合併取最高分；再用一次 Haiku 呼叫**篩掉主題無關的判解／函釋**並為相似案各寫一句 `why_similar`（失敗就全留、用固定句）。
+- Retrieval（約 7–10 s）：查詢字串由 S2 的案由／處分依據／事實／主張／爭點組成，對 KB 依 `category` 各 retrieve 一次（判解 8、函釋 6、決定書 12 個 chunk），同一份文件多 chunk 合併取最高分；再用一次 Claude 呼叫（`BEDROCK_RETRIEVAL_MODEL_ID`）**篩掉主題無關的判解／函釋**並為相似案各寫一句 `why_similar`（失敗就全留、用固定句）。
   - `statutes`：處分依據 ∪ 相似案裁決依據（訴願法 77／79／81）∪ 保留判解主題條文，精確查 `data/statutes.json`（已全量 2,214 條，`tools/extract_statutes.py` 不加 `--poc`）。
   - `interpretations`：KB 函釋 ＋ 從判決／決定書原文抽出的「洗錢防制法第15條之2立法理由第N點」引文（兩種引用寫法都認），id 與 07 檢核的 gold 一致。
   - `similar_cases`：`doc_no` 對回 `data/petitions.jsonl` 取結果／主文／機關／日期；**用原處分文號數字排除本案自己的決定書**（demo 的 113-16 在語料裡）。
   - 實測 113-16：判解＝114 簡上 13、立法理由第 2/3/5 點、相似案 113-18（撤銷）／113-15（駁回）／114-15；配正本改寫草稿跑 S5，gold 法條＋立法理由全部 recalled，只缺語料裡本來就沒有的三篇簡字判決（與 03 範例相同）。
 - Generate（約 80 s、18k input／4.7k output tokens）：**主文版本由規則決定**（09 規則 5：S2.5 `admissible=false` → 不受理版並對回 77 條款次；有 `defect_flags` → 撤銷版；其餘 → 駁回版），模型不得改；system prompt ＝ `09_生成提示詞.md`＋`04_決定書模板.json`＋`05_few_shot.json` 整份；user 帶 S2／S2.5／精簡 S3（每筆標 `statutes[i]` 等 source）。輸出後：`header` 用 S2 覆寫、`holding` 限定模板句、`instruction` 依 04 規則（撤銷不附／其餘臺北高等）、`reasons` 正規化成「一、…」連續編號、`citations` 一律由 `stub.build_citations()` 從本文比對檢索結果產生（模型自己寫的不採信）、`gaps` = `find_gaps()` ＋ 模型標的。
+- 改預設 Sonnet 5 後真實重跑（實際降級到 Sonnet 4.6，S2→S5 共 83 s）：S5 **29/31**，與 4.5 持平；降級只發生在第一次呼叫，之後直接用備援。
 - Docker Compose bedrock 模式已實測（`.env` 填 `ADAPTER=bedrock`＋三個 AWS 變數）：經 nginx `POST /api/cases` → 六階段全 done，**116 s**（S1 36 s／S2 10 s／S3 7 s／S4 67 s），S5 28/31。因此前端輪詢逾時已從 120 s 放寬到 300 s（`f2e/src/api.ts` `POLL_TIMEOUT_MS`）。同機 8000／8080 被佔時在 `.env` 改 `BACKEND_PORT`／`FRONTEND_PORT`。
-- 真實跑 113-16（S2→S5 共 77 s）：S5 **29/31**——段落 5/5、格式 9/9、結論 3/3、事實 1/1、引用 4/4、防幻覺 3/3、citations 11 筆全 grounded、gaps 空；理由三引了 114 簡上 13 字號、立法理由第 3/5 點、行政罰法 7 條（責任條件）。剩 2 分（R3「LINE 對話顯示訴願人有警覺」、卷內證據 4 項）是正本才有的卷證內容，模擬訴願書／告誡書裡沒有，模型不該自己編——這是輸入資料的天花板，不是 prompt 問題。
+- 真實跑 113-16（Sonnet 4.5，S2→S5 共 77 s）：S5 **29/31**——段落 5/5、格式 9/9、結論 3/3、事實 1/1、引用 4/4、防幻覺 3/3、citations 11 筆全 grounded、gaps 空；理由三引了 114 簡上 13 字號、立法理由第 3/5 點、行政罰法 7 條（責任條件）。剩 2 分（R3「LINE 對話顯示訴願人有警覺」、卷內證據 4 項）是正本才有的卷證內容，模擬訴願書／告誡書裡沒有，模型不該自己編——這是輸入資料的天花板，不是 prompt 問題。
 
 ## Knowledge Base（S3 檢索用，已建好）
 

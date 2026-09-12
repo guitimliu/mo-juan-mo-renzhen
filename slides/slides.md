@@ -138,16 +138,15 @@ class: data-slide
 
 <div class="eyebrow">技術可行性</div>
 
-# 一個協調器，串接各段服務
+# 一個協調器，串接各段服務（已實作）
 
-<div class="system"><div class="node"><h2>Demo 前端</h2><p>上傳兩份文件<br>展示處理結果</p></div><div class="arrow">→</div><div class="core"><h2>FastAPI 協調器</h2><p>五階段交換 JSON，狀態存記憶體<br>前端建立案件，再輪詢取得結果</p></div><div class="arrow">↔</div><div class="node"><h2>AWS 服務</h2><p>Bedrock 辨識／生成<br>S3／Knowledge Base</p></div></div><div class="risk-row"><div><h2>入口先驗證</h2><p>先測手寫中文辨識；效果不足時，<br>依計畫改用列印文件保留流程展示。</p></div><div><h2>整合先跑通</h2><p>先接模擬 JSON，再逐段替換真服務，<br>檢查段落、引用召回與結論一致性。</p></div></div>
+<img src="/images/aws-architecture.png" style="width:92%;margin:0 auto;display:block;border:1px solid #e5e7eb;border-radius:8px" alt="AWS 架構與資料流" />
 
-<div class="foot"><span>規劃：法條 JSON 查表；判解與案例採 Titan 向量＋OpenSearch</span><span>08 / 10</span></div>
+<div class="foot"><span>Docker Compose（Vue＋FastAPI）→ Bedrock Converse（Claude Sonnet 5，帳戶不可用時自動降級 4.6）＋ Knowledge Base（Titan v2＋S3 Vectors）｜113-16 實測 S5 29/31</span><span>08 / 10</span></div>
 
 <!--
 建議配時：25 秒。
-以FastAPI協調器串起服務，前端透過明確JSON契約接資料。先處理手寫中文辨識，同時用假資料跑通整條鏈，再逐段替換真服務。AWS與模型是POC計畫的配置，未在此工作區實作或測試。不重述未核對的Textract支援度斷言，也不把程序法律規則當成已驗證實作。
-來源：會議摘要（內容主軸）及最新提供的《訴願POC作戰計畫.pdf》（5頁），以PDF為更新依據。先前網頁參考：https://claude.ai/code/artifact/e1c76357-27db-4099-ad20-eb2265ad2296 。補充來源：sources/poc/的00至09工作包。案例已對照提供原文、模板與範例已讀取，檢核器自測已執行；全量11／29／101資料與系統部署仍未驗證。
+前端與 FastAPI 協調器用 Docker Compose 一鍵起，六個階段依序：OCR、擷取、程序檢核（純規則）、檢索、生成、檢核。四個 AI 階段都走 Bedrock Converse，預設 Claude Sonnet 5、可用環境變數換模型；帳戶拿不到時自動降級 Sonnet 4.6。檢索走自建 Knowledge Base：主辦方 141 篇 PDF 用 pdftotext 轉純文字上 S3，Titan v2 向量存 S3 Vectors，依類別過濾三次查詢並排除本案。全鏈約 2 分鐘，113-16 檢核 29/31，引用全部有據。
 -->
 
 ---

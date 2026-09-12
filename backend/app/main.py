@@ -73,7 +73,10 @@ def create_app(adapters: AdapterSet | None = None, store: CaseStore | None = Non
 
     @api.get("/health")
     async def health():
-        return {"status": "ok", "adapter_mode": adapters.mode}
+        info = {"status": "ok", "adapter_mode": adapters.mode}
+        if adapters.mode == "bedrock":
+            info["models"] = bedrock.model_config()      # 各階段設定／實際模型（含降級狀態），讓前端與 demo 看得到
+        return info
 
     @api.post("/cases", status_code=202)
     async def create_case(background: BackgroundTasks,

@@ -121,7 +121,7 @@ commit 前跑過一輪 5 面向 × 2 反駁者的對抗審查（85 個 agent）�
 - 合併 E 的 v2 時保留：`showDeveloperChecks=false` 隱藏第 6 步（後端仍算 S5）、送達日期欄位（現在會以 `service_date` POST 給後端覆蓋 S2.served_date）、匯出模組改吃目前 view（案號＝case_id）。
 
 ## 3. 之後要接的（介面已留好）
-- `backend/app/adapters/bedrock.py`：**四段已接 AWS（KB `ZOMMOWFOT2`）；Generate 實測 S5 29/31**，剩 2 分是正本才有的 LINE 對話內容（輸入文件沒有），不再追。要再調就改 system prompt（`data/poc/09_生成提示詞.md`＋`04`＋`05`）與後處理（`stub.build_citations()`／`find_gaps()`）。細節與環境變數見 `backend/README.md`「Bedrock 模式」「之後接 Bedrock 要改哪裡」。
+- `backend/app/adapters/bedrock.py`：**四段已接 AWS（KB `ZOMMOWFOT2`）；模型預設全階段 Claude Sonnet 5（`BEDROCK_MODEL_ID`，可整體或分階段用環境變數改），黑客松帳戶拿不到 Sonnet 5 時自動降級 `BEDROCK_FALLBACK_MODEL_ID`（Sonnet 4.6），`/api/health` 會顯示實際模型；Generate 實測 S5 29/31（4.5 與 4.6 皆 29/31）**，剩 2 分是正本才有的 LINE 對話內容（輸入文件沒有），不再追。要再調就改 system prompt（`data/poc/09_生成提示詞.md`＋`04`＋`05`）與後處理（`stub.build_citations()`／`find_gaps()`）。細節與環境變數見 `backend/README.md`「Bedrock 模式」「之後接 Bedrock 要改哪裡」。
 - 啟動 `ADAPTER=bedrock uvicorn app.main:app`（需 AWS 憑證；主辦方憑證是臨時的），其他檔不用動；前端頂部標籤會自動顯示 `bedrock`。
 - 部署：EC2 一台跑 uvicorn＋靜態前端即可；區域 us-east-1。
 

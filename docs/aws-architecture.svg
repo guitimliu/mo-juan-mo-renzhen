@@ -80,19 +80,19 @@ text { font-family: 'Noto Sans CJK TC', sans-serif; fill:#232F3E; font-size:22px
 <text x="1335" y="284" class="bold white">模型推論</text>
 <text x="1500" y="284" class="white" style="font-size:25px">Amazon Bedrock – Converse API</text>
 <text x="1335" y="312" class="white" style="font-size:18px">所有呼叫共用 ≤ 1 RPS RateLimiter（主辦方限制）</text>
-<text x="1335" y="370" class="bold" style="font-size:24px">S1 / S2 / S4：Claude Sonnet 4.5</text>
-<text x="1335" y="405" class="bold" style="font-size:24px">S3 篩選：Claude Haiku 4.5</text>
+<text x="1335" y="370" class="bold" style="font-size:24px">預設全階段：Claude Sonnet 5（BEDROCK_MODEL_ID）</text>
+<text x="1335" y="405" class="bold" style="font-size:24px">帳戶不可用時自動降級：Sonnet 4.6（BEDROCK_FALLBACK_MODEL_ID）</text>
 <rect x="1330" y="470" width="960" height="70" rx="10" fill="#FFF5E5" stroke="#F0D0A0" stroke-width="2"/>
 <text x="1350" y="499" class="bold" style="font-size:23px">S1  多模態 OCR｜影像 → 全文</text>
 <text x="1350" y="527" class="small">不用 Textract：不支援中文</text>
 <rect x="1330" y="565" width="960" height="70" rx="10" fill="#FFF5E5" stroke="#F0D0A0" stroke-width="2"/>
 <text x="1350" y="594" class="bold" style="font-size:23px">S2  資料萃取｜兩份全文 → 案件摘要 JSON</text>
-<text x="1350" y="622" class="small">Claude Sonnet 4.5</text>
+<text x="1350" y="622" class="small">Claude Sonnet 5（可個別覆寫 BEDROCK_EXTRACT_MODEL_ID）</text>
 <rect x="1330" y="770" width="960" height="75" rx="10" fill="#FFF5E5" stroke="#F0D0A0" stroke-width="2"/>
 <text x="1350" y="799" class="bold" style="font-size:23px">S3  候選篩選與相似原因｜why_similar</text>
-<text x="1350" y="827" class="small">Claude Haiku 4.5</text>
+<text x="1350" y="827" class="small">Claude Sonnet 5（可個別覆寫 BEDROCK_RETRIEVAL_MODEL_ID）</text>
 <rect x="1330" y="900" width="960" height="80" rx="10" fill="#FFF5E5" stroke="#F0D0A0" stroke-width="2"/>
-<text x="1350" y="929" class="bold" style="font-size:23px">S4  草稿生成｜Claude Sonnet 4.5</text>
+<text x="1350" y="929" class="bold" style="font-size:23px">S4  草稿生成｜Claude Sonnet 5</text>
 <text x="1350" y="957" class="small">system prompt = 09 + 04 + 05；主文版本依 S2.5 規則</text>
 <text x="1340" y="691" class="green" style="font-size:22px">模型不參與 S2.5 程序規則與 S5 檢核</text>
 <text x="1340" y="726" class="sub">AI 呼叫由 backend 統一節流</text>
