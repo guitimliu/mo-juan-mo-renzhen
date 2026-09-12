@@ -14,7 +14,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 
-from . import checker, pii, rules, settings
+from . import checker, events, pii, rules, settings
 from .adapters.base import AdapterSet
 from .store import STAGES, CaseStore
 
@@ -27,6 +27,7 @@ async def run_case(case_id: str, store: CaseStore, adapters: AdapterSet, delay_s
         log.error("run_case: case %s not found", case_id)
         return
     case.status = "running"
+    events.current_case.set(case)            # adapters 透過 events.progress／delta 推子步驟給 WebSocket
     case.touch()
     ctx: dict[str, dict] = {}
 

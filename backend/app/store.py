@@ -2,6 +2,7 @@
 """in-memory case store（dict）。不用 DB；重啟即清空。envelope 形狀照 03_介面規格 附錄 A。"""
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -38,6 +39,7 @@ class Case:
     service_date: str | None = None          # 承辦人在前端填的送達日（選填），覆蓋 S2.served_date
     pii_map: object = field(default=None, repr=False)   # app.pii.PIIMap：真名對照表，只在記憶體，不進 envelope
     pii: dict | None = None                  # 去識別化摘要（類別／筆數／代號），給前端顯示
+    _subs: list = field(default_factory=list, repr=False)   # WebSocket 訂閱者的 asyncio.Queue（app/events.py）
     status: str = "queued"
     current_stage: str | None = None
     error: str | None = None
@@ -47,6 +49,21 @@ class Case:
 
     def touch(self) -> None:
         self.updated_at = now_iso()
+        self.emit({"type": "stage"})          # WS handler 收到後送完整 envelope
+
+    # ---- 即時事件（app/events.py）----
+    def subscribe(self) -> "asyncio.Queue":
+        q: asyncio.Queue = asyncio.Queue()
+        self._subs.append(q)
+        return q
+
+    def unsubscribe(self, q) -> None:
+        if q in self._subs:
+            self._subs.remove(q)
+
+    def emit(self, event: dict) -> None:
+        for q in list(self._subs):
+            q.put_nowait(event)
 
     def to_envelope(self) -> dict:
         """附錄 A。"""

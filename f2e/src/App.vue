@@ -5,7 +5,7 @@ import DocumentZoom from './components/DocumentZoom.vue'
 import ProcessingStatus from './components/ProcessingStatus.vue'
 import LoginPanel from './components/LoginPanel.vue'
 import { showDeveloperChecks, steps, empty, buildView, stagesFrom } from './data/demo'
-import { ApiError, createCase, getCase, getHealth, sleep, fetchDemoFiles, getToken, setToken, onUnauthorized, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, type CaseEnvelope } from './api'
+import { ApiError, createCase, getCase, getHealth, sleep, fetchDemoFiles, getToken, setToken, onUnauthorized, openCaseSocket, POLL_INTERVAL_MS, POLL_FALLBACK_MS, POLL_TIMEOUT_MS, type CaseEnvelope, type CaseEvent, type CaseSocket } from './api'
 
 // 資料流：view 由 envelope（後端 API）或 fixture（保底）建出；template 透過下列 computed 讀取。
 const view = ref(empty())
@@ -19,6 +19,9 @@ const showLogin = computed(() => authRequired.value && !loggedIn.value)
 const slidesUrl = `${import.meta.env.BASE_URL}slides/`   // Slidev 簡報：Docker 內由 nginx 代理到 slides 容器；本機 dev 需另起 slides（npm run dev）
 const processingError = ref('')
 const pii = ref<CaseEnvelope['pii']>(null)
+const liveNote = ref('')            // WebSocket progress：目前子步驟說明
+const liveText = ref('')            // WebSocket delta：S4 生成中的草稿串流
+let socket: CaseSocket | null = null
 const piiLabel = computed(() => pii.value ? `已去識別化（${pii.value.mode === 'pseudonym' ? '取代法' : pii.value.mode}）：${Object.entries(pii.value.replaced || {}).filter(([, n]) => n).map(([k, n]) => `${({ name: '姓名', id: '身分證', phone: '電話', address: '地址', dob: '生日' } as Record<string, string>)[k] || k}×${n}`).join('、')}` : '')
 const sources = computed(() => view.value.sources)
 const draft = computed(() => view.value.draft)
@@ -206,6 +209,7 @@ function removeFile(index: number) {
 }
 function stopDemo() {
   clearInterval(timer)
+  socket?.close(); socket = null
   run++
   running.value = false
   notify('已停止更新進度，案件仍會繼續處理')
@@ -258,8 +262,29 @@ async function runDemo() {
   toast.value = ''
   view.value = empty()
   dataSource.value = 'api'
+  liveNote.value = ''
+  liveText.value = ''
   const startedAt = Date.now()
   timer = setInterval(() => { elapsed.value = Math.floor((Date.now() - startedAt) / 1000) }, 250)
+  // 套用一次 envelope（WebSocket 與輪詢共用）；回傳 true 表示已結束
+  const applyEnvelope = (env: CaseEnvelope, case_id: string): boolean => {
+    view.value = buildView(stagesFrom(env))
+    adapterMode.value = env.adapter_mode || adapterMode.value
+    pii.value = env.pii ?? null
+    const next = progressFrom(env)
+    if (next !== progress.value) { progress.value = next; liveNote.value = ''; if (next > 4) liveText.value = '' }
+    if (env.status === 'done') {
+      clearInterval(timer)
+      running.value = false
+      ready.value = true
+      processingComplete.value = true
+      liveNote.value = ''
+      notify(`案件 ${case_id} 已完成，可以開始核對`)
+      return true
+    }
+    if (env.status === 'error') { console.error('Case processing failed', env.error); failRun('分析未完成，文件已保留，請重新嘗試。'); return true }
+    return false
+  }
   try {
     await refreshHealth()
     if (myRun !== run) return
@@ -267,29 +292,28 @@ async function runDemo() {
     if (myRun !== run) return
     caseId.value = case_id
     progress.value = 1
-    while (myRun === run) {
-      await sleep(POLL_INTERVAL_MS)
-      if (myRun !== run) return
+    // WebSocket 即時進度：階段變化立即到、子步驟說明、生成草稿逐字串流；連不上就退回 1.5 s 輪詢
+    let finished = false
+    socket?.close()
+    socket = openCaseSocket(case_id, (e: CaseEvent) => {
+      if (myRun !== run || finished) return
+      if (e.type === 'envelope') finished = applyEnvelope(e.envelope, case_id)
+      else if (e.type === 'progress') liveNote.value = e.message
+      else if (e.type === 'delta' && e.stage === 'S4') liveText.value += e.text
+    }, () => { if (myRun === run && !finished) liveNote.value = liveNote.value || '即時連線中斷，改用輪詢更新' })
+    while (myRun === run && !finished) {
+      await sleep(socket?.connected ? POLL_FALLBACK_MS : POLL_INTERVAL_MS)
+      if (myRun !== run || finished) return
       const env = await getCase(case_id)
-      if (myRun !== run) return
-      view.value = buildView(stagesFrom(env))
-      adapterMode.value = env.adapter_mode || adapterMode.value
-      pii.value = env.pii ?? null
-      progress.value = progressFrom(env)
-      if (env.status === 'done') {
-        clearInterval(timer)
-        running.value = false
-        ready.value = true
-        processingComplete.value = true
-        notify(`案件 ${case_id} 已完成，可以開始核對`)
-        return
-      }
-      if (env.status === 'error') { console.error('Case processing failed', env.error); return failRun('分析未完成，文件已保留，請重新嘗試。') }
-      if (Date.now() - startedAt > POLL_TIMEOUT_MS) return failRun(`處理時間超過預期（${POLL_TIMEOUT_MS / 1000} 秒），請重試`)
+      if (myRun !== run || finished) return
+      finished = applyEnvelope(env, case_id)
+      if (!finished && Date.now() - startedAt > POLL_TIMEOUT_MS) return failRun(`處理時間超過預期（${POLL_TIMEOUT_MS / 1000} 秒），請重試`)
     }
   } catch (error) {
     if (myRun !== run) return
     failRun(error instanceof ApiError ? error.message : '分析未完成，請稍後重試。')
+  } finally {
+    if (myRun === run) { socket?.close(); socket = null }
   }
 }
 async function refreshHealth() {
@@ -330,7 +354,7 @@ async function downloadDraft(format: 'pdf' | 'docx' = 'pdf') {
   }
 }
 onMounted(refreshHealth)
-onUnmounted(() => { window.removeEventListener('beforeunload', warnBeforeLeaving); clearInterval(timer); clearTimeout(toastTimer); previews.value.forEach(url => url && URL.revokeObjectURL(url)) })
+onUnmounted(() => { window.removeEventListener('beforeunload', warnBeforeLeaving); clearInterval(timer); clearTimeout(toastTimer); socket?.close(); previews.value.forEach(url => url && URL.revokeObjectURL(url)) })
 
 </script>
 
@@ -365,7 +389,7 @@ onUnmounted(() => { window.removeEventListener('beforeunload', warnBeforeLeaving
 
         <div class="step-guidance"><span>第 {{ active + 1 }} / {{ steps.length }} 步</span><p>{{ guidance[active] }}</p></div>
         <template v-if="active === 0">
-          <ProcessingStatus v-if="processingVisible" :phase="progress" :running="running" :complete="processingComplete" :elapsed="elapsed" :files="fileNames" :error="processingError" note="文件仍需人工核對；重新整理會清除本頁內容。" @cancel="stopDemo" @retry="runDemo" @view="active = 1" /><button v-if="processingVisible && !running" class="button secondary edit-files" @click="processingVisible = false">返回修改文件</button>
+          <ProcessingStatus v-if="processingVisible" :phase="progress" :running="running" :complete="processingComplete" :elapsed="elapsed" :files="fileNames" :error="processingError" :live-note="liveNote" :live-text="liveText" note="文件仍需人工核對；重新整理會清除本頁內容。" @cancel="stopDemo" @retry="runDemo" @view="active = 1" /><button v-if="processingVisible && !running" class="button secondary edit-files" @click="processingVisible = false">返回修改文件</button>
 
 <div v-if="!processingVisible" class="service-date-field">
   <div class="service-date-heading"><label for="service-date">送達日期 <span>（選填）</span></label></div>

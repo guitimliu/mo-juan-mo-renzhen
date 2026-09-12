@@ -3,7 +3,8 @@
 
 // 空字串＝同源（Docker 內由 nginx 把 /api 反向代理到後端）；未設定才退回本機 8000
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/+$/, '')
-export const POLL_INTERVAL_MS = 1500   // 附錄 A：輪詢 1500 ms
+export const POLL_INTERVAL_MS = 1500   // 附錄 A：輪詢 1500 ms（WebSocket 連上後降為 POLL_FALLBACK_MS 備援）
+export const POLL_FALLBACK_MS = 10_000
 export const POLL_TIMEOUT_MS = 300_000 // 附錄 A 建議 120 s，但 bedrock 模式全鏈約 2–2.5 分鐘（OCR 36 s＋Generate 60–80 s），放寬到 300 s（同 nginx proxy_read_timeout）
 export const REQUEST_TIMEOUT_MS = 30_000 // 單次 fetch 逾時（後端掛住時不會永遠等）
 
@@ -143,3 +144,27 @@ export function createCase(petition: File, disposition: File, serviceDate?: stri
 export const getCase = (caseId: string) => request<CaseEnvelope>(`/api/cases/${encodeURIComponent(caseId)}`)
 
 export const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+
+// ---- WebSocket 即時進度（後端 /api/cases/{id}/ws）----
+// 訊息：{type:'envelope', envelope, final?} 階段變化｜{type:'progress', stage, message} 子步驟｜{type:'delta', stage, text} 生成串流｜{type:'ping'}
+export type CaseEvent =
+  | { type: 'envelope'; envelope: CaseEnvelope; final?: boolean }
+  | { type: 'progress'; stage: StageKey; message: string }
+  | { type: 'delta'; stage: StageKey; text: string }
+  | { type: 'ping' }
+
+export interface CaseSocket { close(): void; readonly connected: boolean }
+
+export function openCaseSocket(caseId: string, onEvent: (e: CaseEvent) => void, onClose?: (clean: boolean) => void): CaseSocket {
+  const base = (API_BASE || window.location.origin).replace(/^http/, 'ws')
+  const token = getToken()
+  const url = `${base}/api/cases/${encodeURIComponent(caseId)}/ws${token ? `?token=${encodeURIComponent(token)}` : ''}`
+  let connected = false
+  let ws: WebSocket | null = null
+  try { ws = new WebSocket(url) } catch { onClose?.(false); return { close() {}, get connected() { return false } } }
+  ws.onopen = () => { connected = true }
+  ws.onmessage = ev => { try { onEvent(JSON.parse(ev.data) as CaseEvent) } catch (e) { console.warn('ws message parse failed', e) } }
+  ws.onerror = () => { /* onclose 會接著觸發 */ }
+  ws.onclose = ev => { const was = connected; connected = false; onClose?.(was && ev.code === 1000) }
+  return { close() { try { ws?.close(1000) } catch { /* ignore */ } }, get connected() { return connected } }
+}
