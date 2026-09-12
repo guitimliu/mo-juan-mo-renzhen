@@ -116,6 +116,7 @@ commit 前跑過一輪 5 面向 × 2 反駁者的對抗審查（85 個 agent）�
 ### 2.5 Docker Compose（2026-09-12 16:00 加）
 - `docker-compose.yml`：`backend`（`backend/Dockerfile`，context 是 repo 根目錄以便包 `data/`，healthcheck）＋ `frontend`（`f2e/Dockerfile` 多階段 build → nginx，`f2e/nginx.conf` 把 `/api/` 代理到 `backend:8000`，同源不需 CORS）。
 - `cp .env.example .env && docker compose up --build` → http://localhost:8080；Bedrock 模式在 `.env` 填 `ADAPTER=bedrock` 與 AWS 憑證（env_file 只在有填時帶進容器）。
+- aws-test-95 實測 Docker **bedrock 模式**：`.env` 填 `ADAPTER=bedrock`＋AWS 三變數 → 六階段全 done，116 s，S5 28/31；前端輪詢逾時已放寬到 300 s（`f2e/src/api.ts`）。main 的 PR #3（Slidev 簡報 `slides/`）也已併進 backend 分支。
 - 本機 8080/8000 被別的容器占用，本機 `.env` 設 `FRONTEND_PORT=8093`、`BACKEND_PORT=8012`；實測：nginx → `/api/health` OK、POST（含 `service_date`）→ 9 s 六階段 done、S5 30/31；Playwright 走 E v2 介面：五步進度、區塊由 API 填入、PDF／Word 匯出 OK。
 - 合併 E 的 v2 時保留：`showDeveloperChecks=false` 隱藏第 6 步（後端仍算 S5）、送達日期欄位（現在會以 `service_date` POST 給後端覆蓋 S2.served_date）、匯出模組改吃目前 view（案號＝case_id）。
 

@@ -15,7 +15,7 @@
 |---|---|
 | GET 最外層 envelope、未完成時的值 | **附錄 A**：`stages.S1…S5.{status,data,error,elapsed_ms}`；未完成 `data:null` |
 | 目前階段與生命週期 enum | **附錄 A**：案件 `status` ∈ queued/running/done/error；階段 `status` ∈ pending/running/done/error/skipped；`current_stage` 進行中階段，done 時 null |
-| 失敗原因、重試、輪詢間隔、逾時、取消 | **附錄 A**：階段失敗 → 該階段 `status:"error"` ＋ `error` 字串，整體 `error` 記第一個失敗階段；輪詢 1500 ms、status ∈ {done,error} 即停；逾時前端自訂（實作 120 s）；無取消端點，「停止」只停前端輪詢 |
+| 失敗原因、重試、輪詢間隔、逾時、取消 | **附錄 A**：階段失敗 → 該階段 `status:"error"` ＋ `error` 字串，整體 `error` 記第一個失敗階段；輪詢 1500 ms、status ∈ {done,error} 即停；逾時前端自訂（實作 300 s，bedrock 全鏈實測 116 s）；無取消端點，「停止」只停前端輪詢 |
 | S4 citations 只有全域引用、無段落索引 | **附錄 B**：每筆 `{text, source, section, index}`，`section ∈ {facts, reasons, instruction}`，前端依 (section, index) 掛到段落（`src/data/demo.ts` 的 `buildView`） |
 | S5 摘要與 `07_檢核.py` 輸出不同 | **附錄 C**：S5 ＝ 07 完整輸出 `{checks, score}` ＋ `summary`（原 S5 摘要，由後端從 checks 算出） |
 
