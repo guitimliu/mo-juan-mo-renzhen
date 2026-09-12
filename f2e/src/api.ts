@@ -62,6 +62,8 @@ export interface CaseEnvelope {
   created_at: string
   updated_at: string
   stages: { S1: StageState<S1>; S2: StageState<S2>; S2_5: StageState<S25>; S3: StageState<S3>; S4: StageState<S4>; S5: StageState<S5> }
+  // 個資前處理摘要（bedrock 模式；stub 為 null）：S1 後姓名→甲○○ 等代號，S4 還原；對照表只在後端記憶體
+  pii?: { mode: string; replaced: Record<string, number>; codes: string[] } | null
   error: string | null
 }
 export interface ModelStage { configured: string; active: string }
