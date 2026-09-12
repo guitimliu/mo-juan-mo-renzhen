@@ -23,7 +23,7 @@ npm run preview
 
 ## E 項目範圍
 
-依據 [訴願 POC 作戰計畫](https://claude.ai/code/artifact/e1c76357-27db-4099-ad20-eb2265ad2296?via=auto_preview)：
+前端展示功能：
 
 1. 上傳訴願書與處分書影像。
 2. OCR 原圖與辨識文字對照。
