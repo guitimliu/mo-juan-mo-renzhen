@@ -92,8 +92,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     res = await fetch(API_BASE + path, { ...init, headers, signal: init?.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
   } catch (e) {
-    if (e instanceof DOMException && e.name === 'TimeoutError') throw new ApiError(`後端 ${API_BASE} 逾時未回應（${REQUEST_TIMEOUT_MS / 1000} 秒）`)
-    throw new ApiError(`無法連線後端 ${API_BASE}，請確認 uvicorn 已啟動`)
+    if (e instanceof DOMException && e.name === 'TimeoutError') throw new ApiError('等候回應逾時，請稍後重試。')
+    throw new ApiError('暫時無法連線，請確認網路連線或稍後重試。')
   }
   if (res.status === 401 && !path.startsWith('/api/login')) { setToken(null); onUnauthorized.handler?.() }
   if (!res.ok) {
@@ -102,7 +102,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       const body = await res.json()
       if (body?.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)
     } catch { /* 非 JSON 回應 */ }
-    throw new ApiError(`後端回應錯誤：${detail}`, res.status)
+    console.error('Request failed', res.status, detail)
+    const message = res.status === 401 ? '登入已失效，請重新登入。'
+      : res.status === 413 ? '文件過大，請縮小至 10 MB 以下再上傳。'
+      : res.status === 422 ? '文件或日期格式不正確，請檢查後重試。'
+      : res.status === 404 ? '找不到這份案件，請重新開始。'
+      : '服務暫時無法完成要求，請稍後重試。'
+    throw new ApiError(message, res.status)
   }
   return res.json() as Promise<T>
 }
@@ -119,7 +125,7 @@ export const DEMO_FILES = [
 export async function fetchDemoFiles(): Promise<File[]> {
   return Promise.all(DEMO_FILES.map(async d => {
     const r = await fetch(d.url)
-    if (!r.ok) throw new ApiError(`載入 demo 影像失敗：${d.url}`)
+    if (!r.ok) throw new ApiError('載入 Demo 文件失敗，請稍後重試。')
     return new File([await r.blob()], d.name, { type: 'image/jpeg' })
   }))
 }
