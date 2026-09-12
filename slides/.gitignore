@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.slidev/
+*.log
+
+# Include the presentation demo despite the repository-wide MP4 ignore rule.
+!public/videos/demo-walkthrough.mp4
