@@ -12,7 +12,7 @@ Copy-Item .env.example .env
 npm run dev
 ```
 
-依終端顯示的本機網址開啟頁面。`.env` 預留後端 API 網址，目前全部使用本機假資料，尚未串接 API。
+依終端顯示的本機網址開啟頁面。`.env` 的 `VITE_API_BASE_URL` 指向後端（預設 `http://localhost:8000`；後端啟動見 `../backend/README.md`）。「開始分析（送後端）」走 `POST/GET /api/cases`；「載入示範案件」走本機 fixture（後端掛掉時的保底）。
 
 ```powershell
 npm run build
@@ -32,16 +32,16 @@ npm run preview
 5. 決定書草稿：主文、事實、理由、教示，各段可展開引用。
 6. 檢核表。
 
-先依團隊的 `data/poc/03_介面規格.md` 假 JSON 開發，再串接 D 的 `POST /cases` 與 `GET /cases/{id}`，以輪詢取得進度。不做登入、資料庫或 WebSocket。
+依團隊的 `data/poc/03_介面規格.md`（含附錄 A/B/C）串接 `backend/` 的 `POST /api/cases` 與 `GET /api/cases/{id}`，以每 1.5 秒輪詢取得進度。不做登入、資料庫或 WebSocket。
 
-## 已實作的假資料 Demo
+## 已實作的 Demo
 
-首頁預設開啟 113-16 示範案件的決定書草稿，可由流程列切換全部六個區塊。
+首頁預設開啟 113-16 示範案件（本機 fixture）的決定書草稿，可由流程列切換全部六個區塊。選兩張圖片按「開始分析（送後端）」則六個區塊改由後端 API 逐階段填入。
 
 - 文件上傳：支援 JPG、PNG、WebP，本機預覽，單檔上限 10 MB。
-- 模擬分析：顯示階段進度，完成後進入 OCR 對照。
-- OCR 對照：切換訴願書與原處分書，顯示固定假辨識結果。
-- 程序檢核：顯示通過及人工確認的模擬燈號。
+- 後端分析：POST 影像 → 輪詢 envelope → 六步進度隨 `stages.*.status` 推進，各區塊資料到了就能點；後端連不上顯示錯誤，不退回假資料。
+- OCR 對照：切換訴願書與原處分書，顯示後端 S1 文字（stub 模式為工作包模擬文件）。
+- 程序檢核：顯示後端規則引擎（S2.5）的燈號；無法判定的項目標「待人工確認」。
 - 法源檢索：依據法條、判解、相似案篩選。
 - 決定書：主文、事實、理由、教示與可展開的引用來源。
 - 正本比對檢核：人工審閱勾選及純文字草稿下載。
@@ -49,22 +49,23 @@ npm run preview
 
 ### Demo 操作
 
-1. 開啟首頁，查看決定書草稿，點選引用查看右側模擬來源。
+1. 開啟首頁，查看決定書草稿，點選段落引用查看右側來源（附錄 B 段落映射）。
 2. 切換「法源檢索」測試篩選，切換「正本比對檢核」勾選審閱後下載。
-3. 在「文件上傳」點選「開始模擬分析」，約 12 秒內依序顯示六步進度，完成後按「查看 OCR 對照」。處理中可停止、保留文件並重新開始。
-4. 「新建案件」會清除本機選檔；選取兩份影像後可再次模擬分析。
+3. 「新建案件」→ 選兩張圖 → 「開始分析（送後端）」，stub 模式約 9 秒內依序顯示六步進度，完成後按「查看 OCR 對照」。處理中可停止輪詢、保留文件並重新開始。
+4. 頂部標籤依 `GET /api/health` 顯示後端模式（示範資料（stub）／後端未連線）。
 5. 隨時按「載入示範案件」回復初始展示狀態。
 
-輸入與檢索為展示假資料；草稿由團隊提供的正本轉製，檢核報告為預先計算結果。此 Demo 不會上傳文件、實際辨識圖片或執行法律判斷。重新整理會重置狀態。上傳的圖片僅供原圖預覽，模擬分析結果不會根據圖片改變。
+後端目前為 stub 模式：影像會送到本機後端但不辨識，S1/S3 為工作包內容、S4 草稿為正本改寫（非 AI 生成）、S2.5 程序檢核與 S5 檢核表則是後端真的算出來的。不上雲、不儲存；重新整理會重置狀態。
 
 ### 程式位置
 
-- `src/App.vue`：六階段畫面與互動狀態。
-- `src/data/demo.ts`：將階段資料轉為畫面資料。
-- `src/data/pipeline.json`：依工作包產生的固定 fixture 與 29/31 檢核報告。
+- `src/App.vue`：六階段畫面與互動狀態；`runDemo()` 走後端 API。
+- `src/api.ts`：後端 API 客戶端與 envelope 型別。
+- `src/data/demo.ts`：`stagesFrom()`＋`buildView()` 把 envelope（或 fixture）轉為畫面資料。
+- `src/data/pipeline.json`：保底 fixture（附錄 A envelope，由 `backend: python -m app.fixture` 產出，30/31）。
 - `src/components/ProcessingStatus.vue`：六步處理、等待時間、停止、重試、完成 UX。
-- `scripts/build-demo-fixture.py`：從 `data/poc` 重建 fixture（Python 3，僅使用標準函式庫）。
+- `scripts/build-demo-fixture.py`：舊 fixture 產生器，已棄用（改用後端 `python -m app.fixture`）。
 - `src/components/AppIcon.vue`：SVG 圖示。
 - `src/style.css`：版型、主題及響應式樣式。
 
-字型使用 Google Fonts 的 Noto Sans TC 與 Noto Serif TC，無網路時回退至系統中文字型。已收錄團隊 `data/poc/03_介面規格.md`；GET 最外層狀態與每段引用映射尚未定義，見 `docs/backend-integration.md`。
+字型使用 Google Fonts 的 Noto Sans TC 與 Noto Serif TC，無網路時回退至系統中文字型。已收錄團隊 `data/poc/03_介面規格.md`（含附錄 A/B/C）；串接細節見 `docs/backend-integration.md`。

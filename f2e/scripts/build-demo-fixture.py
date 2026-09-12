@@ -1,4 +1,11 @@
-"""Build fixed frontend fixtures from the supplied POC package, not an AI generation run."""
+"""【已棄用 2026-09-12】舊工作包時期的 fixture 產生器（舊形狀、教示法院為地院）。
+
+現在 src/data/pipeline.json 是附錄 A envelope，請改用後端：cd backend && python -m app.fixture
+保留本檔僅供對照，執行會覆蓋 pipeline.json 成舊形狀（demo.ts 仍可讀，但內容是舊版）。
+"""
+import sys
+if "--force" not in sys.argv:
+    sys.exit("已棄用：請改用 `cd backend && python -m app.fixture`（加 --force 仍可執行舊流程）")
 import importlib.util
 import json
 import re

@@ -4,3 +4,6 @@
 !.env.example
 .DS_Store
 Thumbs.db
+data/kb_corpus/
+__pycache__/
+*.pyc
