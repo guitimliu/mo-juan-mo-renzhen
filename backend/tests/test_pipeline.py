@@ -453,3 +453,22 @@ def test_generate_adds_procedure_statutes_for_failed_checks():
     assert bedrock.add_procedure_statutes(s3, s2_5) == []                      # 冪等
     s3b = {"statutes": []}
     assert bedrock.add_procedure_statutes(s3b, {"checks": [{"rule": "行政程序法96條 處分書應記載事項", "pass": False}]}) == ["行政程序法第96條", "行政程序法第114條"]
+
+
+def test_converse_retries_on_read_timeout(monkeypatch):
+    """botocore ReadTimeoutError 的 response 是 None：不能炸 AttributeError，且要重試。"""
+    from botocore.exceptions import ReadTimeoutError
+    from app.adapters import bedrock
+    bedrock.limiter.min_interval_s = 0
+    orig_sleep = asyncio.sleep
+    monkeypatch.setattr(asyncio, "sleep", lambda s: orig_sleep(0))
+
+    class Flaky(_FakeBedrockClient):
+        def __init__(self, replies): super().__init__(replies); self.n = 0
+        def converse(self, **kw):
+            self.n += 1
+            if self.n == 1: raise ReadTimeoutError(endpoint_url="https://bedrock", error=TimeoutError("read timed out"))
+            return super().converse(**kw)
+    c = Flaky(["ok"])
+    out = asyncio.run(bedrock.converse(c, "m", [{"role": "user", "content": [{"text": "x"}]}]))
+    assert out == "ok" and c.n == 2

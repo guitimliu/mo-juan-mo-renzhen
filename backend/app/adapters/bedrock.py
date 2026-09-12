@@ -78,7 +78,7 @@ def get_client():
         import boto3  # 只有 bedrock 模式才需要
         from botocore.config import Config
         _client = boto3.client("bedrock-runtime", region_name=REGION,
-                               config=Config(read_timeout=120, retries={"max_attempts": 0}))
+                               config=Config(read_timeout=180, connect_timeout=10, retries={"max_attempts": 0}))
     return _client
 
 
@@ -155,7 +155,7 @@ async def converse(client, model_id: str, messages: list[dict], system: str | No
             log.info("bedrock %s in=%s out=%s", model_id, usage.get("inputTokens"), usage.get("outputTokens"))
             return "".join(c.get("text", "") for c in resp["output"]["message"]["content"])
         except Exception as e:  # botocore ClientError 也走這裡；用名稱判斷免得 import botocore
-            err = getattr(e, "response", {}).get("Error", {})
+            err = (getattr(e, "response", None) or {}).get("Error") or {}      # ReadTimeoutError 等 response 是 None
             code, message = err.get("Code", type(e).__name__), str(err.get("Message") or e)
             if _is_model_unavailable(code, message) and FALLBACK_MODEL_ID and model_id != FALLBACK_MODEL_ID:
                 log.warning("模型 %s 此帳戶不可用（%s），降級改用 %s", model_id, code, FALLBACK_MODEL_ID)
@@ -164,8 +164,9 @@ async def converse(client, model_id: str, messages: list[dict], system: str | No
                         _model_fallbacks[k] = FALLBACK_MODEL_ID
                 model_id = kwargs["modelId"] = FALLBACK_MODEL_ID
                 continue
-            if code not in ("ThrottlingException", "ServiceUnavailableException", "ModelNotReadyException") \
-                    or attempt == MAX_RETRIES:
+            retryable = code in ("ThrottlingException", "ServiceUnavailableException", "ModelNotReadyException", "InternalServerException",
+                                 "ReadTimeoutError", "ConnectTimeoutError", "EndpointConnectionError", "ConnectionClosedError")
+            if not retryable or attempt == MAX_RETRIES:
                 raise
             backoff = 2 ** attempt
             log.warning("bedrock %s，%ss 後重試（%d/%d）", code, backoff, attempt + 1, MAX_RETRIES)

@@ -13,3 +13,10 @@ __pycache__/
 
 # Local video production project
 /videos/
+video/.env
+video/out/
+video/assets/generated/
+video/remotion/node_modules/
+video/remotion/out/
+video/remotion/public/tts/
+video/remotion/public/video/

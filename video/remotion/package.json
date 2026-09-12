@@ -1,0 +1,21 @@
+{
+  "name": "mjmr-video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.tsx",
+    "render": "remotion render src/index.tsx Main out/main.mp4 --codec h264 --crf 18 --concurrency 4",
+    "still": "remotion still src/index.tsx Main out/frame.png --frame"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.290",
+    "@remotion/google-fonts": "4.0.290",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "remotion": "4.0.290"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.0",
+    "typescript": "5.8.3"
+  }
+}
