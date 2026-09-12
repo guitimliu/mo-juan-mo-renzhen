@@ -126,18 +126,20 @@ class: data-slide
 -->
 
 ---
+class: arch-slide
+---
 
 <div class="eyebrow">技術架構（已部署 · AWS 官方架構圖示）</div>
 
 # 一個協調器，串接各段服務
 
-<img src="/images/aws-architecture.png" style="width:92%;margin:0 auto;display:block;border:1px solid #e5e7eb;border-radius:8px" alt="AWS 架構與資料流" />
+<img src="/images/aws-architecture.png" class="arch-img" alt="AWS 架構與資料流" />
 
-<div class="foot"><span>Docker Compose（Vue＋FastAPI）→ Bedrock Converse（Claude Sonnet 5，帳戶不可用時自動降級 4.6）＋ Knowledge Base（Titan v2＋S3 Vectors）｜us-west-2</span><span>08 / 11</span></div>
+<div class="foot"><span>EC2 Docker Compose（Vue＋FastAPI）→ Bedrock Converse（Sonnet 5，降級 4.6）＋ Knowledge Base（Titan v2＋S3 Vectors）｜us-west-2</span><span>08 / 11</span></div>
 
 <!--
 建議配時：25 秒。
-左邊是 Docker Compose 一鍵起的前後端，右邊是 Bedrock。模型用環境變數設定，預設 Sonnet 5，帳戶拿不到會自動降級。全部呼叫共用 1 RPS 限流，符合主辦方規範。
+左邊是 EC2 上 Docker Compose 一鍵起的三個容器，右邊是 Bedrock。模型用環境變數設定，預設 Sonnet 5，帳戶拿不到會自動降級。全部呼叫共用 1 RPS 限流，符合主辦方規範。
 -->
 
 ---
