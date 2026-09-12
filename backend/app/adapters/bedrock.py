@@ -693,6 +693,32 @@ def _disposition_ref(s2: dict) -> str | None:
     return f"{d.year - 1911}年{d.month}月{d.day}日{disp['doc_no']}" if d else disp["doc_no"]
 
 
+PROCEDURE_STATUTES = {            # S2.5 規則 → 決定書會引用的條文（不受理／撤銷版理由一）
+    "訴願法14條 30日": [("訴願法", "14"), ("訴願法", "77")],
+    "訴願法77(3) 當事人適格": [("訴願法", "18"), ("訴願法", "77")],
+    "訴願法77(8) 行政處分": [("行政程序法", "92"), ("訴願法", "77")],
+    "行政程序法96條 處分書應記載事項": [("行政程序法", "96"), ("行政程序法", "114")],
+}
+
+
+def add_procedure_statutes(s3: dict, s2_5: dict) -> list[str]:
+    """S3 在 S2.5 之後才跑但拿不到它，所以程序法條在這裡補：只補「沒過」的規則對應條文，精確查 statutes.json，
+    直接 append 進 s3["statutes"]（同一個 dict＝envelope 的 S3），citations 的 statutes[i] 才對得上。回傳補了哪些。"""
+    table = {(r["law"], r["article"]): r for r in _stub.statutes_table()}
+    have = {(x["law"], x["article"]) for x in s3.get("statutes") or []}
+    added = []
+    failed = [c["rule"] for c in (s2_5 or {}).get("checks") or [] if not c.get("pass")]
+    for rule in failed:
+        for ref in PROCEDURE_STATUTES.get(rule, []):
+            if ref in table and ref not in have:
+                row = table[ref]
+                s3.setdefault("statutes", []).append({**{k: row[k] for k in ("law", "article", "text", "version_date", "source")},
+                                                      "added_by": f"S2.5 {rule}"})
+                have.add(ref)
+                added.append(f"{ref[0]}第{ref[1]}條")
+    return added
+
+
 class BedrockGenerate:
     def __init__(self, client=None, model_id: str = GENERATE_MODEL_ID):
         self._client = client
@@ -704,6 +730,9 @@ class BedrockGenerate:
 
     async def run(self, s2: dict, s2_5: dict, s3: dict) -> dict:
         decision = decide_outcome(s2_5)
+        added = add_procedure_statutes(s3, s2_5)
+        if added:
+            log.info("依 S2.5 補入程序法條：%s", "、".join(added))
         user = "\n\n".join([
             f"## 本件裁決（已由程序檢核規則決定，請直接採用，不得改變）\n{json.dumps(decision, ensure_ascii=False)}\n"
             f"→ 請用模板的「{decision['version']}」骨架；主文必須是該版本列出的句子之一。"
