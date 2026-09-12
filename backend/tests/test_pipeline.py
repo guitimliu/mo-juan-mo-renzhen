@@ -100,7 +100,7 @@ def test_s5_summary_follows_appendix_c(store, adapters, images):
 
 def test_envelope_shape(store, adapters, images):
     env = run(store, adapters, images).to_envelope()
-    assert set(env) == {"case_id", "status", "current_stage", "adapter_mode", "created_at", "updated_at", "stages", "error"}
+    assert set(env) == {"case_id", "status", "current_stage", "adapter_mode", "created_at", "updated_at", "stages", "pii", "error"}
     assert list(env["stages"]) == list(STAGES) and env["adapter_mode"] == "stub"
     for st in env["stages"].values():
         assert set(st) == {"status", "data", "error", "elapsed_ms"} and isinstance(st["elapsed_ms"], int)

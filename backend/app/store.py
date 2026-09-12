@@ -36,6 +36,8 @@ class Case:
     adapter_mode: str
     images: list[UploadedImage] = field(default_factory=list, repr=False)
     service_date: str | None = None          # 承辦人在前端填的送達日（選填），覆蓋 S2.served_date
+    pii_map: object = field(default=None, repr=False)   # app.pii.PIIMap：真名對照表，只在記憶體，不進 envelope
+    pii: dict | None = None                  # 去識別化摘要（類別／筆數／代號），給前端顯示
     status: str = "queued"
     current_stage: str | None = None
     error: str | None = None
@@ -56,6 +58,7 @@ class Case:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "stages": {name: st.to_dict() for name, st in self.stages.items()},
+            "pii": self.pii,
             "error": self.error,
         }
 

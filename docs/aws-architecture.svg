@@ -36,7 +36,7 @@ text { font-family: 'Noto Sans CJK TC', sans-serif; fill:#232F3E; font-size:22px
 <text x="103" y="449" class="bold">案件輸入</text>
 <text x="103" y="478" class="sub">Case Inputs</text>
 <text x="103" y="521" class="" style="font-size:19px">訴願書＋原處分書</text>
-<text x="103" y="550" class="" style="font-size:18px">照片先遮罩 → bytes</text>
+<text x="103" y="550" class="" style="font-size:18px">照片 → bytes（OCR 後即去識別化）</text>
 <path d="M196 410 V360" fill="none" stroke="#65788A" stroke-width="2.4" marker-end="url(#arrow)"/>
 <rect x="85" y="670" width="220" height="205" rx="14" fill="#FFFFFF" stroke="#B9C8D6" stroke-width="2"/>
 <text x="103" y="710" class="bold">進度輪詢</text>
@@ -50,7 +50,7 @@ text { font-family: 'Noto Sans CJK TC', sans-serif; fill:#232F3E; font-size:22px
 <text x="103" y="1050" class="small">承辦人檢視、修訂</text>
 <rect x="355" y="470" width="680" height="70" rx="10" fill="#EFF4F9" stroke="#BBCBD9" stroke-width="2"/>
 <text x="373" y="499" class="bold">S1  OCR</text>
-<text x="373" y="526" class="small">影像文字辨識</text>
+<text x="373" y="526" class="small">影像文字辨識 → 個資取代（姓名→甲○○、證號／電話／地址／生日遮罩；對照表僅存本機）</text>
 <rect x="355" y="565" width="680" height="70" rx="10" fill="#EFF4F9" stroke="#BBCBD9" stroke-width="2"/>
 <text x="373" y="594" class="bold">S2  Extract</text>
 <text x="373" y="621" class="small">兩份全文 → 案件摘要 JSON</text>

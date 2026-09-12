@@ -103,6 +103,23 @@ tests/
 - 沒有取消端點（附錄 A）；前端「停止」只停輪詢。
 - 法條／判解摘要不是手打的：`tools/extract_*.py` 從主辦方 PDF 切出來，存 `data/statutes.json`、`data/precedents.json`（含 `source`）。`data/petitions.jsonl` 是 101 件歷史決定書結構化資料（從 hackathon 目錄同步）。
 
+## 個資前處理（`app/pii.py`，取代法）
+
+黑客松規範第 2 條「AWS 帳戶內不放個資」。S1 OCR 一回來、任何文字送 Bedrock 之前，`pipeline.py` 用**純規則**（不呼叫模型）偵測並取代：
+
+| 類別 | 偵測 | 取代 |
+|---|---|---|
+| 姓名 | 「訴願人／受告誡人／代理人…：」標籤後 2–4 字（已遮罩的 陳○超 不動） | 代號 **甲○○／乙○○…**，同一人全文一致 |
+| 身分證 | `[A-Z][12]\d{8}` | `A1○○○○○○○○` |
+| 電話 | 市話／手機 | `○○○○-○○○-○○○` |
+| 門牌地址 | 縣市區＋路段號樓 | 保留縣市區（管轄），`○○路○段○○號` |
+| 出生年月日 | 「出生年月日：」後的日期 | 保留年（訴願能力），月日 `○` |
+
+- 對照表只在 `Case.pii_map`（記憶體），**不進 envelope、不進 log、不上 AWS**；envelope 多 `pii` 摘要 `{mode, replaced:{name,id,phone,address,dob}, codes}`，S1 的 `ocr_confidence_note` 前面會寫「已去識別化（取代法）：姓名×3、…」讓前端 OCR 頁直接看到。
+- S2／S3／S4 送模型的全是代號版；規則引擎「訴願人＝處分相對人」用代號比對照樣成立。**S4 草稿產出後只還原姓名**（身分證／地址本來就不該出現在決定書）；S2 保持代號版當作「送出去的證據」。
+- 開關 `PII_MASK`：`auto`（預設；bedrock 開、stub 關）／`1`／`0`。
+- 實測（demo 影像含虛構的 0912-345-678、A123456789、北新路二段88號5樓）：S1～S3 envelope 完全不含原值，S4 還原「訴願人王小明」，S2.5 四項 PASS，全鏈 103 s。影像本身仍須送 OCR（無法避免），demo 影像是虛構資料。
+
 ## 登入（`app/auth.py`，環境變數設定）
 
 - `AUTH_USERNAME`＋`AUTH_PASSWORD` **都設**才啟用：前端會先出現登入頁，`/api/cases*` 要帶 `Authorization: Bearer <token>`（`POST /api/login` 取得）；`/api/health` 不用登入並回 `auth_required`。任一沒設＝不驗證，本機開發／stub demo 直接用。

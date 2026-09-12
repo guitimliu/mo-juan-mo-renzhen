@@ -14,7 +14,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 
-from . import checker, rules
+from . import checker, pii, rules, settings
 from .adapters.base import AdapterSet
 from .store import STAGES, CaseStore
 
@@ -59,7 +59,23 @@ async def run_case(case_id: str, store: CaseStore, adapters: AdapterSet, delay_s
     async def as_async(fn, *args):
         return fn(*args)
 
-    await step("S1", (), lambda: adapters.ocr.run(case_id, case.images))
+    async def ocr_then_mask():
+        """S1 之後、任何文字送模型之前做個資取代（app/pii.py）；對照表留在 case.pii_map，envelope 只有摘要。"""
+        s1 = await adapters.ocr.run(case_id, case.images)
+        if not settings.pii_enabled(adapters.mode) or not isinstance(s1, dict):
+            return s1
+        m = pii.detect([s1.get("petition_text") or "", s1.get("disposition_text") or ""])
+        masked = pii.apply_to(s1, m)
+        for k in ("petition_text", "disposition_text"):
+            pii.count_applied(s1.get(k) or "", masked.get(k) or "", m)
+        case.pii_map, case.pii = m, m.summary()
+        labels = {"name": "姓名", "id": "身分證", "phone": "電話", "address": "地址", "dob": "生日"}
+        masked["pii_note"] = ("已去識別化（取代法）：" + "、".join(f"{labels.get(k, k)}×{v}" for k, v in m.summary()["replaced"].items()) +
+                             "；姓名改以代號 " + "／".join(m.summary()["codes"]) + " 送模型，對照表僅存本機，草稿輸出時還原") if m.enabled else "未偵測到個資"
+        masked["ocr_confidence_note"] = masked["pii_note"] + "｜" + (masked.get("ocr_confidence_note") or "")   # 前端 OCR 頁直接看得到
+        return masked
+
+    await step("S1", (), ocr_then_mask)
     async def extract_with_overrides():
         s2 = await adapters.extract.run(ctx["S1"])
         # 前端「送達日期（選填）」：承辦人依送達證明填的日子比 OCR／LLM 擷取可靠，直接覆蓋
@@ -74,7 +90,11 @@ async def run_case(case_id: str, store: CaseStore, adapters: AdapterSet, delay_s
     await step("S2", ("S1",), extract_with_overrides)
     await step("S2_5", ("S2",), lambda: as_async(rules.check_procedure, ctx["S2"], ctx["S1"].get("disposition_text")))
     await step("S3", ("S2",), lambda: adapters.retrieval.run(ctx["S2"]))
-    await step("S4", ("S2", "S2_5", "S3"), lambda: adapters.generate.run(ctx["S2"], ctx["S2_5"], ctx["S3"]))
+    async def generate_then_restore():
+        s4 = await adapters.generate.run(ctx["S2"], ctx["S2_5"], ctx["S3"])
+        return pii.restore(s4, case.pii_map) if case.pii_map else s4     # 只還原姓名；身分證／地址維持遮罩
+
+    await step("S4", ("S2", "S2_5", "S3"), generate_then_restore)
     await step("S5", ("S4",), lambda: as_async(checker.run, ctx["S4"], ctx.get("S3")))
 
     failed = [n for n in STAGES if case.stages[n].status == "error"]
