@@ -127,7 +127,7 @@ class: data-slide
 
 ---
 
-<div class="eyebrow">技術架構（已部署）</div>
+<div class="eyebrow">技術架構（已部署 · AWS 官方架構圖示）</div>
 
 # 一個協調器，串接各段服務
 

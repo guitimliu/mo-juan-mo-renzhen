@@ -1,6 +1,6 @@
 # C_莫捲莫認真｜訴願 AI 輔助草擬簡報
 
-Slidev簡報，共11頁，總配時約6分鐘。第10頁為58秒預錄Demo影片；第8頁為 `docs/aws-architecture.png` 架構圖（改圖後 `cp docs/aws-architecture.png slides/public/images/`）。
+Slidev簡報，共11頁，總配時約6分鐘。第10頁為58秒預錄Demo影片；第8頁為 `docs/aws-architecture.png` 架構圖：來源是 `docs/aws-architecture.drawio`（draw.io 官方 AWS 圖示，依 vidanov/aws-architecture-diagram-skill 規範），用 draw.io 開啟即可編輯；改圖後重新匯出 PNG 並 `cp docs/aws-architecture.png slides/public/images/`。
 
 ## 啟動
 
