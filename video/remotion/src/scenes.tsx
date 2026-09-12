@@ -183,6 +183,7 @@ export const Demo: React.FC = () => {
         {seg.rate !== 1 && frame < demoSegFrames.reduce((a, b) => a + b, 0) && <span style={{ background: "rgba(0,0,0,.6)", color: "#fff", fontSize: 20, padding: "6px 12px", borderRadius: 6, fontFamily: FONT.mono }}>{seg.rate}×</span>}
       </div>
       <Narration id="06_demo_a" from={0} />
+      <Sequence from={sec(15)} layout="none"><Narration id="06b_demo_wait" /></Sequence>
       <Sequence from={s07} layout="none"><Narration id="07_demo_b" /></Sequence>
       <Sequence from={s08} layout="none"><Narration id="08_demo_c" /></Sequence>
     </Page>
