@@ -1,8 +1,8 @@
 # HANDOFF — 給下一個 session
 
-更新：2026-09-12 15:20。上一個 session 完成資料盤點、案例選定、五人分工、A 角色工作包；**本 session（hackathon-c8）完成 `backend/`（stub 管線）並把 E 的前端接上真 API；平行 session（aws-test-95）同時把 `bedrock.py` 的 OCR／Extract／Retrieval 接上 AWS（KB `ZOMMOWFOT2`）**。
+更新：2026-09-12 15:20。上一個 session 完成資料盤點、案例選定、五人分工、A 角色工作包；**本 session（hackathon-c8）完成 `backend/`（stub 管線）並把 E 的前端接上真 API；平行 session（aws-test-95）同時把 `bedrock.py` 四段（OCR／Extract／Retrieval／Generate）接上 AWS（KB `ZOMMOWFOT2`）**。
 團隊 repo：https://github.com/guitimliu/mo-juan-mo-renzhen，分支 **`backend`**（已 push；PR 待貴哥合併到 main）。本機 clone 在 `mo-juan-mo-renzhen/`。
-**下一步：`backend/app/adapters/bedrock.py` 只剩 `BedrockGenerate.run()` 待接（§3）。** 其他檔案不用動。
+**下一步：`ADAPTER=bedrock` 端到端已通；Generate 首次實測 S5 26/31，prompt 調校中（§3）。** 其他檔案不用動。
 
 ---
 
@@ -25,7 +25,7 @@
 | 前端 | repo `f2e/`（E 負責） | **已接真 API**：`src/api.ts`（POST/GET/health）、`App.vue` 資料流改輪詢 envelope、`demo.ts` 改 `stagesFrom()+buildView()`；版型未動。「載入示範案件」仍走 fixture 保底；後端掛掉顯示錯誤不退回假資料 |
 | GET envelope、段落引用映射、S5 形狀 | `data/poc/03_介面規格.md` 附錄 A/B/C | 已補定；後端與前端皆照此實作 |
 | 00／03 教示法院修正 | `data/poc/00_`、`03_` | 已修正；**repo 的 `f2e/data/poc/` 與根目錄 `data/poc/` 已同步為修正版** |
-| 後端 | repo `backend/` | **完成（stub 模式）**：FastAPI + 四個 stub adapters + 真的 `rules.py`（30 日含休息日順延、寄存送達、77(3)/(8)、96 條瑕疵）+ `checker.py` 包裝 + pytest 全綠。`bedrock.py`：OCR／Extract／Retrieval 已接 AWS（aws-test-95 做的，`ADAPTER=bedrock` 跑到 S3 會 done、S4 NotImplementedError），Generate 待接。細節見 `backend/README.md` |
+| 後端 | repo `backend/` | **完成（stub 模式）**：FastAPI + 四個 stub adapters + 真的 `rules.py`（30 日含休息日順延、寄存送達、77(3)/(8)、96 條瑕疵）+ `checker.py` 包裝 + pytest 全綠。`bedrock.py`：四段皆已接 AWS（aws-test-95 做的），Generate 首次實測 S5 26/31，prompt 調校中。細節見 `backend/README.md` |
 | 法條／判解查表 | repo `data/statutes.json`（全量 2,214 條）、`data/precedents.json` | 由 `backend/tools/extract_*.py` 從主辦方 PDF 切出；stub 只用其中 洗防法 22、訴願法 79、行政罰法 7 與三篇判解（最高行 108 判 531、109 上 780、北高行 114 簡上 13） |
 | Knowledge Base | AWS `ZOMMOWFOT2`（語料 `s3://mo-juan-mo-renzhen-kb-text`，由 `backend/tools/build_kb_corpus.py` 產） | aws-test-95 建；隊友的 `6Z7LGUSCJN` 是亂碼不要用。細節見 `backend/README.md`「Knowledge Base」 |
 | 前端保底 fixture | repo `f2e/src/data/pipeline.json` | 已改為附錄 A envelope（`cd backend && python -m app.fixture` 產出，30/31）；E 的 `scripts/build-demo-fixture.py` 已標棄用 |
@@ -114,7 +114,7 @@ backend/
 commit 前跑過一輪 5 面向 × 2 反駁者的對抗審查（85 個 agent），確認 37 項、已修 30 項（規則引擎休息日順延／送達方式別名／姓名正規化／函形式處分、checker 型別寬容與引用比對、前端 source 保底／選檔清空／逾時／chip 顯示條項、文件），未修的 7 項屬設計取捨或另一 session 範圍（S2.5 失敗後 S3 仍跑＝HANDOFF 要求；舊 fixture 相容只保證不炸；Bedrock 文件由 aws-test-95 維護）。
 
 ## 3. 之後要接的（介面已留好）
-- `backend/app/adapters/bedrock.py`：**OCR／Extract／Retrieval 已接（KB `ZOMMOWFOT2`），只剩 `BedrockGenerate.run()`**。用既有 `converse()` helper（含 1 RPS 限流與重試）；system prompt 取 `data/poc/09_生成提示詞.md`＋`04_決定書模板.json`＋`05_few_shot.json`；輸出後套 `stub.build_citations()`／`stub.find_gaps()` 補附錄 B 與 gaps，再交給 `checker.run()`（已做型別寬容）。細節與環境變數見 `backend/README.md`「Bedrock 模式」「之後接 Bedrock 要改哪裡」。
+- `backend/app/adapters/bedrock.py`：**四段已接 AWS（KB `ZOMMOWFOT2`）；Generate 首次實測 S5 26/31，prompt 調校中**——調 system prompt（`data/poc/09_生成提示詞.md`＋`04`＋`05`）與後處理（`stub.build_citations()`／`find_gaps()`），用 `python3 data/poc/07_檢核.py` 或 S5 看差在哪幾項。細節與環境變數見 `backend/README.md`「Bedrock 模式」「之後接 Bedrock 要改哪裡」。
 - 啟動 `ADAPTER=bedrock uvicorn app.main:app`（需 AWS 憑證；主辦方憑證是臨時的），其他檔不用動；前端頂部標籤會自動顯示 `bedrock`。
 - 部署：EC2 一台跑 uvicorn＋靜態前端即可；區域 us-east-1。
 
