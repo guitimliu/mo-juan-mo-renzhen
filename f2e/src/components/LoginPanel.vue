@@ -5,7 +5,6 @@ import Icon from './AppIcon.vue'
 import { ApiError, login, setToken } from '../api'
 
 const emit = defineEmits<{ (e: 'done', username: string): void }>()
-const props = defineProps<{ modeLabel: string }>()
 const username = ref('')
 const password = ref('')
 const error = ref('')
@@ -22,7 +21,7 @@ async function submit() {
     setToken(r.token)
     emit('done', r.username || username.value.trim())
   } catch (e) {
-    error.value = e instanceof ApiError && e.status === 401 ? '帳號或密碼錯誤' : e instanceof ApiError ? e.message : `登入失敗：${String(e)}`
+    error.value = e instanceof ApiError && e.status === 401 ? '帳號或密碼錯誤' : e instanceof ApiError ? e.message : '登入失敗，請稍後重試。'
   } finally {
     busy.value = false
   }
@@ -34,12 +33,12 @@ async function submit() {
     <form class="login-card" @submit.prevent="submit" aria-labelledby="login-title">
       <div class="login-brand"><span class="brand-symbol"><Icon name="scales" :size="26" /></span><div><b>訴願審查助手</b><small>新北市政府法制局 · 智慧案件審查工作台</small></div></div>
       <h1 id="login-title">登入工作台</h1>
-      <p class="muted">請輸入承辦人帳號密碼（由系統管理者以環境變數 AUTH_USERNAME／AUTH_PASSWORD 設定）。</p>
+      <p class="muted">請輸入承辦人帳號與密碼。若無法登入，請聯絡管理者。</p>
       <label>帳號<input v-model="username" type="text" autocomplete="username" :disabled="busy" autofocus /></label>
       <label>密碼<input v-model="password" type="password" autocomplete="current-password" :disabled="busy" /></label>
       <div v-if="error" class="login-error" role="alert"><Icon name="info" :size="16" />{{ error }}</div>
       <button class="button primary" type="submit" :disabled="busy"><Icon name="arrow" :size="17" />{{ busy ? '登入中…' : '登入' }}</button>
-      <small class="login-foot">{{ props.modeLabel }}</small>
+
     </form>
   </div>
 </template>
@@ -56,7 +55,7 @@ h1{margin:6px 0 0;font-size:22px;color:var(--navy)}
 label{display:grid;gap:6px;font-weight:500;color:#3a4a62}
 input{border:1px solid var(--border);border-radius:10px;padding:11px 12px;font-size:15px;font-family:inherit;background:#fbfcfe}
 input:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:var(--teal)}
-.login-error{display:flex;align-items:center;gap:8px;color:#a13c2e;background:#fdf1ee;border:1px solid #f3cfc7;border-radius:10px;padding:9px 12px;font-size:13px}
+.login-error{display:flex;align-items:center;gap:8px;color:#a13c2e;background:#fdf1ee;border:1px solid #f3cfc7;border-radius:10px;padding:9px 12px;font-size:14px}
 .button{justify-content:center}
 .login-foot{text-align:center;color:var(--muted)}
 </style>

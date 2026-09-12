@@ -5,3 +5,8 @@ dist/
 
 # Include the presentation demo despite the repository-wide MP4 ignore rule.
 !public/videos/demo-walkthrough.mp4
+
+# Private authoring material
+/sources/
+/archive/
+/public/images/SOURCES.md

@@ -33,3 +33,7 @@ __pycache__/
 
 # Local export verification artifacts
 /tmp/
+
+/data/poc/
+/docs/backend-integration.md
+/scripts/build-demo-fixture.py
