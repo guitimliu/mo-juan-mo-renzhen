@@ -2,7 +2,7 @@
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import Icon from './components/AppIcon.vue'
 import ProcessingStatus from './components/ProcessingStatus.vue'
-import { steps, sources, draft, checks, ocrText, dispositionText, ocrNote, summary, procedure, report, validation, gaps, totals } from './data/demo'
+import { showDeveloperChecks, steps, sources, draft, checks, ocrText, dispositionText, summary, procedure, report, validation, gaps, totals } from './data/demo'
 
 const active = ref(4)
 const selectedSource = ref('statutes[0]')
@@ -20,6 +20,7 @@ const reviewed = ref(false)
 const files = ref<(File | null)[]>([null, null])
 const previews = ref<string[]>(['', ''])
 const useSample = ref(true)
+const serviceDate = ref('')
 const documentIndex = ref(0)
 const expanded = ref('理由（三）')
 const sourceDetail = ref<HTMLElement | null>(null)
@@ -49,6 +50,7 @@ function reset() {
   useSample.value = false
   reviewed.value = false
   active.value = 0
+  serviceDate.value = ''
   files.value = [null, null]
   previews.value.forEach(url => url && URL.revokeObjectURL(url))
   previews.value = ['', '']
@@ -80,7 +82,7 @@ function selectFile(event: Event, index: number) {
 function stopDemo() {
   clearInterval(timer)
   running.value = false
-  notify('已停止模擬，文件仍保留')
+  notify('已停止分析，文件仍保留')
 }
 function stepStatus(index: number) {
   if (running.value) return index < progress.value ? '已完成' : index === progress.value ? '處理中' : '等待中'
@@ -103,25 +105,30 @@ function runDemo() {
   const startedAt = Date.now()
   timer = setInterval(() => {
     elapsed.value = Math.floor((Date.now() - startedAt) / 1000)
-    progress.value = Math.min(6, Math.floor((Date.now() - startedAt) / 2000))
-    if (progress.value >= 6) {
+    progress.value = Math.min(steps.length, Math.floor((Date.now() - startedAt) / 2000))
+    if (progress.value >= steps.length) {
       clearInterval(timer)
       running.value = false
       ready.value = true
       processingComplete.value = true
-      notify('六個步驟已完成，可開始核對示範結果')
+      notify('處理步驟已完成，可開始核對結果')
     }
   }, 250)
 }
-function downloadDraft() {
-  const content = '訴願決定書草稿【模擬資料・非正式決定】\n113-16 違反洗錢防制法事件\n\n' + draft.map(p => p.title + '\n' + p.text + (p.citations.length ? '\n引用來源：' + p.citations.join('、') : '')).join('\n\n') + '\n\n模擬引用來源\n' + sources.map(s => `${s.id}：${s.title}\n${s.content}`).join('\n\n')
-  const url = URL.createObjectURL(new Blob(['\uFEFF' + content], { type: 'text/plain;charset=utf-8' }))
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = '113-16_訴願決定書_模擬草稿.txt'
-  anchor.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-  notify('已下載模擬草稿')
+const exporting = ref(false)
+async function downloadDraft(format: 'pdf' | 'docx' = 'pdf') {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const { exportDraft } = await import('./exportDraft')
+    await exportDraft(format)
+    notify(`已匯出 ${format === 'pdf' ? 'PDF' : 'Word'} 草稿`)
+  } catch (error) {
+    console.error('Draft export failed', error)
+    notify('匯出失敗，請稍後重試')
+  } finally {
+    exporting.value = false
+  }
 }
 onUnmounted(() => { clearInterval(timer); clearTimeout(toastTimer); previews.value.forEach(url => url && URL.revokeObjectURL(url)) })
 </script>
@@ -129,39 +136,46 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(toastTimer); previews.val
 <template>
   <div class="workspace">
     <aside class="sidebar">
-      <a class="brand" href="#" @click.prevent="loadSample"><span class="brand-symbol"><Icon name="scales" :size="25" /></span><span>訴願智助<small>智慧案件審查工作台</small></span></a>
-      <div class="workspace-label">法制局工作空間 <span>POC</span></div>
+      <a class="brand" href="#" @click.prevent="loadSample"><span class="brand-symbol"><Icon name="scales" :size="25" /></span><span>訴願審查助手<small>智慧案件審查工作台</small></span></a>
+      <div class="workspace-label">法制局工作空間</div>
       <button class="nav-main" @click="active = ready ? 4 : 0"><Icon name="grid" />案件工作台<span class="nav-dot"></span></button>
       <div class="side-divider"></div>
       <div class="side-heading">目前案件 <span>01</span></div>
       <button class="case-nav" @click="active = ready ? 4 : 0"><Icon name="file" /><span><b>{{ useSample ? '113-16' : '新建案件' }}</b><small>{{ useSample ? '違反洗錢防制法事件' : '待匯入案件文件' }}</small></span></button>
       <div class="side-heading flow-heading">審查流程</div>
       <nav aria-label="審查流程"><button v-for="(step, i) in steps" :key="step.title" class="side-step" :class="{ selected: active === i }" :disabled="i > 0 && !ready" @click="active = i"><Icon :name="step.icon" :size="18" /><span>{{ step.title }}</span><Icon v-if="ready && i < 4" name="check" :size="14" /><span v-else-if="i === 4 && ready" class="little-dot"></span></button></nav>
-      <div class="side-bottom"><div class="demo-notice"><Icon name="spark" :size="18" /><b>展示模式</b><p>使用模擬案件資料<br>不會傳送或儲存您的文件</p></div><div class="user"><span class="avatar">E</span><span>前端展示空間<small>新北市 AI 智慧城市黑客松</small></span><span class="online"></span></div></div>
+      <div class="side-bottom"><div class="user"><span class="avatar">E</span><span>案件工作空間<small>新北市政府法制局</small></span><span class="online"></span></div></div>
     </aside>
 
     <div class="main-shell">
-      <header class="topbar"><div class="breadcrumb">案件工作台 <Icon name="chevron" :size="13" /><span>{{ useSample ? '113-16' : '新建案件' }}</span></div><div class="topbar-right"><span class="demo-pill"><span></span>假資料展示</span><span class="top-divider"></span><Icon name="scales" :size="18" /><span>新北市政府法制局</span></div></header>
+      <header class="topbar"><div class="breadcrumb">案件工作台 <Icon name="chevron" :size="13" /><span>{{ useSample ? '113-16' : '新建案件' }}</span></div><div class="topbar-right"><Icon name="scales" :size="18" /><span>新北市政府法制局</span></div></header>
       <main>
-        <div class="page-title"><div><div class="case-eyebrow">{{ useSample ? '案件 113-16' : '建立新案件' }} <span>行政訴願</span></div><h1>{{ useSample ? '違反洗錢防制法事件' : '開始一份新的案件審查' }}</h1><p><span>訴願人 {{ useSample ? '王小明' : '待辨識' }}</span><i></i><span>原處分機關 {{ useSample ? '新店分局' : '待辨識' }}</span><i></i><span class="status-text"><span></span>{{ running ? '模擬分析中' : ready ? '草稿待審閱' : '等待文件' }}</span></p></div><button class="button secondary" :disabled="running" @click="reset"><Icon name="plus" :size="17" />新建案件</button></div>
+        <div class="page-title"><div><div class="case-eyebrow">{{ useSample ? '案件 113-16' : '建立新案件' }} <span>行政訴願</span></div><h1>{{ useSample ? '違反洗錢防制法事件' : '開始一份新的案件審查' }}</h1><p><span>訴願人 {{ useSample ? '王小明' : '待辨識' }}</span><i></i><span>原處分機關 {{ useSample ? '新店分局' : '待辨識' }}</span><i></i><span class="status-text"><span></span>{{ running ? '分析中' : ready ? '草稿待審閱' : '等待文件' }}</span></p></div><button class="button secondary" :disabled="running" @click="reset"><Icon name="plus" :size="17" />新建案件</button></div>
 
         <div class="case-banner"><div class="banner-icon"><Icon name="spark" /></div><div><b>讓繁複的卷證，成為有據可循的決定。</b><p>從文件辨識到草稿生成，完整保留每一步審查依據。</p></div><button @click="loadSample" :disabled="running">載入示範案件 <Icon name="arrow" :size="17" /></button></div>
 
-        <nav class="pipeline" aria-label="案件處理階段" :aria-busy="running"><button v-for="(step, i) in steps" :key="step.title" :class="{ current: running ? progress === i : active === i, done: running ? i < progress : ready && i < 4 }" :aria-current="(running ? progress === i : active === i) ? 'step' : undefined" :disabled="i > 0 && !ready" @click="active = i"><span class="step-number"><Icon v-if="running ? i < progress : ready && i < 4" name="check" :size="15" /><template v-else>{{ String(i + 1).padStart(2, '0') }}</template></span><span>{{ step.short }}<small>{{ stepStatus(i) }}</small></span><Icon v-if="i < 5" class="step-chevron" name="chevron" :size="14" /></button></nav>
+        <nav class="pipeline" aria-label="案件處理階段" :aria-busy="running"><button v-for="(step, i) in steps" :key="step.title" :class="{ current: running ? progress === i : active === i, done: running ? i < progress : ready && i < 4 }" :aria-current="(running ? progress === i : active === i) ? 'step' : undefined" :disabled="i > 0 && !ready" @click="active = i"><span class="step-number"><Icon v-if="running ? i < progress : ready && i < 4" name="check" :size="15" /><template v-else>{{ String(i + 1).padStart(2, '0') }}</template></span><span>{{ step.short }}<small>{{ stepStatus(i) }}</small></span><Icon v-if="i < steps.length - 1" class="step-chevron" name="chevron" :size="14" /></button></nav>
 
-        <div class="section-heading"><div><h2>{{ steps[active]!.title }} <span v-if="active === 4" class="tag">初稿 v1</span></h2><p>{{ steps[active]!.description }}</p></div><button v-if="ready && active === 4" class="button primary" @click="downloadDraft"><Icon name="download" :size="17" />匯出草稿</button><span v-else-if="ready" class="subtle-label">示範資料 · 113-16</span></div>
+        <div class="section-heading"><div><h2>{{ steps[active]!.title }} <span v-if="active === 4" class="tag">初稿 v1</span></h2><p>{{ steps[active]!.description }}</p></div><div v-if="ready && active === 4" class="export-actions"><button class="button primary" :disabled="exporting" @click="downloadDraft()"><Icon name="download" :size="17" />{{ exporting ? '匯出中…' : '匯出 PDF' }}</button><button class="button secondary" :disabled="exporting" @click="downloadDraft('docx')">匯出 Word</button></div></div>
 
         <template v-if="active === 0">
           <ProcessingStatus v-if="processingVisible" :phase="progress" :running="running" :complete="processingComplete" :elapsed="elapsed" :files="fileNames" @cancel="stopDemo" @retry="runDemo" @view="active = 1" />
-          <section v-if="!processingVisible" class="panel upload-panel"><div class="panel-title"><Icon name="upload" /><h3>匯入案件文件</h3><span class="tag">2 份必要文件</span></div><p class="muted">選擇清晰的文件影像，或直接載入示範案件查看完整流程。</p><div class="upload-grid"><label v-for="(label, i) in ['訴願書', '原處分書']" :key="label" class="upload-zone"><input type="file" accept="image/jpeg,image/png,image/webp" :disabled="running" @change="selectFile($event, i)" /><img v-if="previews[i]" :src="previews[i]" :alt="label + '預覽'" /><Icon v-else name="upload" :size="30" /><b>{{ label }}</b><span>{{ fileNames[i] }}</span><small>點選選擇圖片 · JPG / PNG / WebP · 上限 10 MB</small></label></div><div class="info-bar"><Icon name="info" :size="18" />目前僅提供本機圖片預覽。分析結果為固定示範資料，不會辨識所選圖片。</div><div class="panel-actions"><button class="button primary" :disabled="running" @click="runDemo"><Icon name="spark" :size="17" />{{ running ? '模擬分析中…' : '開始模擬分析' }}</button></div></section>
+<div v-if="!processingVisible" class="service-date-field">
+  <div class="service-date-heading"><label for="service-date">送達日期 <span>（選填）</span></label></div>
+  <p id="service-date-help">請依原處分的送達證明填寫；不確定可先留空，後續由承辦人核對。</p>
+  <div class="service-date-control"><input id="service-date" v-model="serviceDate" type="date" :disabled="running" aria-describedby="service-date-help service-date-note" /><button v-if="serviceDate" class="button secondary" :disabled="running" @click="serviceDate = ''">清除日期</button></div>
+  <small id="service-date-note">請選擇西元日期（例如民國 113 年為西元 2024 年）。</small>
+</div>
+          <section v-if="!processingVisible" class="panel upload-panel"><div class="panel-title"><Icon name="upload" /><h3>匯入案件文件</h3><span class="tag">2 份必要文件</span></div><p class="muted">請上傳清晰的訴願書與原處分書影像。</p><div class="upload-grid"><label v-for="(label, i) in ['訴願書', '原處分書']" :key="label" class="upload-zone"><input type="file" accept="image/jpeg,image/png,image/webp" :disabled="running" @change="selectFile($event, i)" /><img v-if="previews[i]" :src="previews[i]" :alt="label + '預覽'" /><Icon v-else name="upload" :size="30" /><b>{{ label }}</b><span>{{ fileNames[i] }}</span><small>點選選擇圖片 · JPG / PNG / WebP · 上限 10 MB</small></label></div>
+<div class="panel-actions"><button class="button primary" :disabled="running" @click="runDemo"><Icon name="spark" :size="17" />{{ running ? '分析中…' : '開始分析' }}</button></div></section>
         </template>
 
         <template v-else-if="active === 1">
-          <div class="document-tabs"><button v-for="(name, i) in ['訴願書', '原處分書']" :key="name" :class="{ active: documentIndex === i }" @click="documentIndex = i">{{ name }}</button></div><div class="ocr-layout"><section class="panel"><div class="panel-title"><Icon name="file" /><h3>原始文件</h3><span class="tag">{{ previews[documentIndex] ? '本機圖片' : '示範排版' }}</span></div><div class="scan-preview"><img v-if="previews[documentIndex]" :src="previews[documentIndex]" alt="所選文件預覽" /><div v-else class="sample-document"><span class="sample-stamp">模擬文件</span><h3>{{ documentIndex === 0 ? '訴 願 書' : '書 面 告 誡' }}</h3><p>{{ documentIndex === 0 ? ocrText : dispositionText }}</p></div></div></section><section class="panel"><div class="panel-title"><Icon name="scan" /><h3>辨識結果</h3><span class="tag">固定假資料</span></div><div class="ocr-content"><div class="info-bar">{{ ocrNote }}</div><p>{{ documentIndex === 0 ? ocrText : dispositionText }}</p><h4>擷取欄位</h4><dl class="fields"><div><dt>訴願人</dt><dd>王小明</dd></div><div><dt>案件類型</dt><dd>洗錢防制法</dd></div><div><dt>核心主張</dt><dd>{{ summary.appellant_claims.join('、') }}</dd></div></dl></div></section></div>
+          <div class="document-tabs"><button v-for="(name, i) in ['訴願書', '原處分書']" :key="name" :class="{ active: documentIndex === i }" @click="documentIndex = i">{{ name }}</button></div><div class="ocr-layout"><section class="panel"><div class="panel-title"><Icon name="file" /><h3>原始文件</h3></div><div class="scan-preview"><img v-if="previews[documentIndex]" :src="previews[documentIndex]" alt="所選文件預覽" /><div v-else class="sample-document"><span class="sample-stamp">模擬文件</span><h3>{{ documentIndex === 0 ? '訴 願 書' : '書 面 告 誡' }}</h3><p>{{ documentIndex === 0 ? ocrText : dispositionText }}</p></div></div></section><section class="panel"><div class="panel-title"><Icon name="scan" /><h3>辨識結果</h3></div><div class="ocr-content"><p>{{ documentIndex === 0 ? ocrText : dispositionText }}</p><h4>擷取欄位</h4><dl class="fields"><div><dt>訴願人</dt><dd>王小明</dd></div><div><dt>案件類型</dt><dd>洗錢防制法</dd></div><div><dt>核心主張</dt><dd>{{ summary.appellant_claims.join('、') }}</dd></div></dl></div></section></div>
         </template>
 
         <template v-else-if="active === 2">
-          <section class="panel procedure-panel"><div class="panel-title"><Icon name="shield" /><h3>程序審查結果</h3><span class="tag green">{{ procedure.checks.filter(c => c.pass).length }} / {{ procedure.checks.length }} 項通過</span></div><div class="check-row" v-for="item in procedure.checks" :key="item.rule"><span class="check-symbol" :class="{ warning: !item.pass }"><Icon :name="item.pass ? 'check' : 'info'" /></span><div><h3>{{ item.rule }}</h3><p>{{ item.note || `送達日 ${item.served} → 提起日 ${item.filed}，相隔 ${item.days} 天。` }}</p></div><span :class="['tag', item.pass ? 'green' : 'amber']">{{ item.pass ? '模擬通過' : '待確認' }}</span></div><div class="info-bar">依團隊 S2.5 假 JSON 顯示，尚未連接後端規則引擎。</div></section>
+          <section class="panel procedure-panel"><div class="panel-title"><Icon name="shield" /><h3>程序審查結果</h3><span class="tag green">{{ procedure.checks.filter(c => c.pass).length }} / {{ procedure.checks.length }} 項通過</span></div><div class="check-row" v-for="item in procedure.checks" :key="item.rule"><span class="check-symbol" :class="{ warning: !item.pass }"><Icon :name="item.pass ? 'check' : 'info'" /></span><div><h3>{{ item.rule }}</h3><p>{{ item.note || `送達日 ${item.served} → 提起日 ${item.filed}，相隔 ${item.days} 天。` }}</p></div><span :class="['tag', item.pass ? 'green' : 'amber']">{{ item.pass ? '通過' : '待確認' }}</span></div></section>
         </template>
 
         <template v-else-if="active === 3">
@@ -169,14 +183,14 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(toastTimer); previews.val
         </template>
 
         <template v-else-if="active === 4">
-          <div class="draft-layout"><section class="document-panel"><div class="document-toolbar"><span><Icon name="file" :size="16" />113-16_訴願決定書</span><span><span class="small-dot"></span>已生成 <span class="toolbar-divider">|</span> 模擬草稿</span></div><article class="decision-paper"><div class="paper-topline"><span>新北市政府</span><span class="draft-stamp">草 稿</span></div><h2>訴願決定書</h2><div class="paper-case-number">案號：113-16</div><dl class="paper-meta"><div><dt>訴願人</dt><dd>王小明</dd></div><div><dt>原處分機關</dt><dd>新北市政府警察局新店分局</dd></div><div><dt>案由</dt><dd>違反洗錢防制法事件</dd></div></dl><p class="paper-intro">訴願人因違反洗錢防制法事件，不服原處分機關所為之書面告誡，提起訴願，本府決定如下：</p><section v-for="part in draft" :key="part.title" class="draft-section"><div class="draft-section-title"><h3>{{ part.title }}</h3><button v-if="part.citations.length" :aria-expanded="expanded === part.title" @click="expanded = expanded === part.title ? '' : part.title"><Icon name="link" :size="13" />{{ part.citations.length }} 筆引用 <span>{{ expanded === part.title ? '−' : '+' }}</span></button><span v-else class="paper-note">{{ part.title === '教示' ? '待人工補正' : '依案件摘要' }}</span></div><p>{{ part.text }}</p><div v-if="expanded === part.title" class="citation-chips"><button v-for="id in part.citations" :key="id" :class="{ selected: selectedSource === id }" @click="showSource(id)"><Icon name="book" :size="13" />{{ sources.find(s => s.id === id)?.title }}<Icon name="chevron" :size="12" /></button></div></section><footer class="paper-footer">本示範稿由團隊提供的正本轉製，非即時 AI 生成；已知引用缺口及教示差異須經人工確認。</footer></article><div class="document-foot"><span>4 個段落</span><span>模擬內容 · 非正式決定書</span></div></section>
-          <aside class="evidence-column"><section class="panel evidence-panel"><div class="panel-title"><Icon name="book" :size="18" /><h3>引用依據</h3><span class="count">{{ sources.length }}</span></div><p class="evidence-hint">點選草稿中的引用，查看對應來源。</p><div class="source-list"><button v-for="item in sources" :key="item.id" :class="{ active: selectedSource === item.id }" @click="showSource(item.id)"><span class="source-type">{{ item.type }}</span><span><b>{{ item.title }}</b><small>{{ item.subtitle }}</small></span><Icon name="chevron" :size="14" /></button></div><div ref="sourceDetail" class="source-detail" tabindex="-1" aria-label="引用來源內容"><div><span class="tag">{{ source.tag }}</span><span class="source-id">{{ source.id }}</span></div><h4>{{ source.title }}</h4><p>{{ source.content }}</p><span class="source-warning"><Icon name="info" :size="13" />工作包展示內容，非即時檢索</span></div></section><section class="panel gap-panel"><div class="panel-title"><Icon name="info" :size="18" /><h3>待補查與資料差異</h3><span class="tag amber">{{ gaps.length }}</span></div><ul><li v-for="gap in gaps" :key="gap">{{ gap }}</li></ul></section><section class="panel quick-check"><div class="panel-title"><Icon name="shield" :size="18" /><h3>草稿檢核</h3><span class="tag amber">{{ totals.passed }} / {{ totals.total }}</span></div><div v-for="item in checks" :key="item.title" class="mini-check"><Icon :name="item.status ? 'check' : 'info'" :size="16" :class="item.status ? 'text-green' : 'text-amber'" /><span>{{ item.title }}</span></div><button class="review-link" @click="active = 5">檢視完整檢核表 <Icon name="arrow" :size="16" /></button></section><div class="human-note"><Icon name="info" :size="18" /><p>AI 提供輔助，判斷仍由人作成。<br>請確認事實、法源及救濟教示。</p></div></aside></div>
+          <div class="draft-layout"><section class="document-panel"><div class="document-toolbar"><span><Icon name="file" :size="16" />113-16_訴願決定書</span><span><span class="small-dot"></span>已生成 <span class="toolbar-divider">|</span> 草稿</span></div><article class="decision-paper"><div class="paper-topline"><span>新北市政府</span><span class="draft-stamp">草 稿</span></div><h2>訴願決定書</h2><div class="paper-case-number">案號：113-16</div><dl class="paper-meta"><div><dt>訴願人</dt><dd>王小明</dd></div><div><dt>原處分機關</dt><dd>新北市政府警察局新店分局</dd></div><div><dt>案由</dt><dd>違反洗錢防制法事件</dd></div></dl><p class="paper-intro">訴願人因違反洗錢防制法事件，不服原處分機關所為之書面告誡，提起訴願，本府決定如下：</p><section v-for="part in draft" :key="part.title" class="draft-section"><div class="draft-section-title"><h3>{{ part.title }}</h3><button v-if="part.citations.length" :aria-expanded="expanded === part.title" @click="expanded = expanded === part.title ? '' : part.title"><Icon name="link" :size="13" />{{ part.citations.length }} 筆引用 <span>{{ expanded === part.title ? '−' : '+' }}</span></button><span v-else class="paper-note">{{ part.title === '教示' ? '待人工補正' : '依案件摘要' }}</span></div><p>{{ part.text }}</p><div v-if="expanded === part.title" class="citation-chips"><button v-for="id in part.citations" :key="id" :class="{ selected: selectedSource === id }" @click="showSource(id)"><Icon name="book" :size="13" />{{ sources.find(s => s.id === id)?.title }}<Icon name="chevron" :size="12" /></button></div></section><footer class="paper-footer">草稿內容須由承辦人核對事實、引用依據及救濟教示。</footer></article><div class="document-foot"><span>4 個段落</span><span>草稿 · 待人工審閱</span></div></section>
+          <aside class="evidence-column"><section class="panel evidence-panel"><div class="panel-title"><Icon name="book" :size="18" /><h3>引用依據</h3><span class="count">{{ sources.length }}</span></div><p class="evidence-hint">點選草稿中的引用，查看對應來源。</p><div class="source-list"><button v-for="item in sources" :key="item.id" :class="{ active: selectedSource === item.id }" @click="showSource(item.id)"><span class="source-type">{{ item.type }}</span><span><b>{{ item.title }}</b><small>{{ item.subtitle }}</small></span><Icon name="chevron" :size="14" /></button></div><div ref="sourceDetail" class="source-detail" tabindex="-1" aria-label="引用來源內容"><div><span class="tag">{{ source.tag }}</span><span class="source-id">{{ source.id }}</span></div><h4>{{ source.title }}</h4><p>{{ source.content }}</p></div></section><section class="panel gap-panel"><div class="panel-title"><Icon name="info" :size="18" /><h3>待補查與資料差異</h3><span class="tag amber">{{ gaps.length }}</span></div><ul><li v-for="gap in gaps" :key="gap">{{ gap }}</li></ul></section><section v-if="showDeveloperChecks" class="panel quick-check"><div class="panel-title"><Icon name="shield" :size="18" /><h3>草稿檢核</h3><span class="tag amber">{{ totals.passed }} / {{ totals.total }}</span></div><div v-for="item in checks" :key="item.title" class="mini-check"><Icon :name="item.status ? 'check' : 'info'" :size="16" :class="item.status ? 'text-green' : 'text-amber'" /><span>{{ item.title }}</span></div><button class="review-link" @click="active = 5">檢視完整檢核表 <Icon name="arrow" :size="16" /></button></section><div class="human-note"><Icon name="info" :size="18" /><p>AI 提供輔助，判斷仍由人作成。<br>請確認事實、法源及救濟教示。</p></div></aside></div>
         </template>
 
-        <template v-else>
-          <section class="panel quality-panel"><div class="quality-summary"><span class="quality-icon"><Icon name="shield" :size="32" /></span><div><h3>{{ reviewed ? '已完成示範審閱' : '與標準答案比對，讓差異清楚可見' }}</h3><p>{{ totals.passed }} 項通過，{{ totals.failed }} 項未通過 · 論理要點 {{ report.score['論理要點'] }}</p></div><span class="quality-score">{{ totals.passed }}<span>/ {{ totals.total }}</span></span></div><div class="comparison-note info-bar">此報告由團隊提供的檢核器，對「正本轉製草稿＋模擬檢索資料」實際計算；不代表 AI 生成品質。教示法院不一致，且正本的 3 篇判決未在檢索結果內。</div><div class="comparison-grid"><div><h4>本次模擬檢索已涵蓋</h4><p v-for="name in validation.gold_citations_recalled" :key="name"><Icon name="check" :size="14" />{{ name }}</p></div><div><h4>正本引用但未檢索到</h4><p v-for="name in validation.gold_citations_missed" :key="name"><Icon name="info" :size="14" />{{ name }}</p></div></div><details v-for="group in ['段落', '格式', '結論', '事實', '引用', '論理', '防幻覺']" :key="group" class="report-group" :open="group === '結論' || group === '防幻覺'"><summary>{{ group }}<span class="tag">{{ report.score[group as keyof typeof report.score] }}</span></summary><div class="check-row" v-for="item in report.checks.filter(c => c.group === group)" :key="item.item"><span class="check-symbol" :class="{ warning: !item.pass }"><Icon :name="item.pass ? 'check' : 'info'" /></span><div><h3>{{ item.item }}</h3><p v-if="item.note">{{ item.note }}</p></div><span :class="['tag', item.pass ? 'green' : 'amber']">{{ item.pass ? '通過' : '未通過' }}</span></div></details><div class="quality-confirm"><label><input type="checkbox" v-model="reviewed" />我已檢視此示範草稿，了解法律內容與救濟教示仍需人工核對。</label><button class="button primary" :disabled="!reviewed" @click="downloadDraft"><Icon name="download" :size="17" />下載示範草稿</button></div></section>
+        <template v-else-if="showDeveloperChecks && active === 5">
+          <section class="panel quality-panel"><div class="quality-summary"><span class="quality-icon"><Icon name="shield" :size="32" /></span><div><h3>{{ reviewed ? '已完成示範審閱' : '與標準答案比對，讓差異清楚可見' }}</h3><p>{{ totals.passed }} 項通過，{{ totals.failed }} 項未通過 · 論理要點 {{ report.score['論理要點'] }}</p></div><span class="quality-score">{{ totals.passed }}<span>/ {{ totals.total }}</span></span></div><div class="comparison-note info-bar">此報告由團隊提供的檢核器，對「正本轉製草稿＋模擬檢索資料」實際計算；不代表 AI 生成品質。教示法院不一致，且正本的 3 篇判決未在檢索結果內。</div><div class="comparison-grid"><div><h4>本次模擬檢索已涵蓋</h4><p v-for="name in validation.gold_citations_recalled" :key="name"><Icon name="check" :size="14" />{{ name }}</p></div><div><h4>正本引用但未檢索到</h4><p v-for="name in validation.gold_citations_missed" :key="name"><Icon name="info" :size="14" />{{ name }}</p></div></div><details v-for="group in ['段落', '格式', '結論', '事實', '引用', '論理', '防幻覺']" :key="group" class="report-group" :open="group === '結論' || group === '防幻覺'"><summary>{{ group }}<span class="tag">{{ report.score[group as keyof typeof report.score] }}</span></summary><div class="check-row" v-for="item in report.checks.filter(c => c.group === group)" :key="item.item"><span class="check-symbol" :class="{ warning: !item.pass }"><Icon :name="item.pass ? 'check' : 'info'" /></span><div><h3>{{ item.item }}</h3><p v-if="item.note">{{ item.note }}</p></div><span :class="['tag', item.pass ? 'green' : 'amber']">{{ item.pass ? '通過' : '未通過' }}</span></div></details><div class="quality-confirm"><label><input type="checkbox" v-model="reviewed" />我已檢視此示範草稿，了解法律內容與救濟教示仍需人工核對。</label><button class="button primary" :disabled="!reviewed" @click="downloadDraft()"><Icon name="download" :size="17" />下載示範草稿</button></div></section>
         </template>
-        <footer class="page-footer"><span><Icon name="scales" :size="14" />訴願智助 · 讓審查更有依據</span><span>2026 新北市 AI 智慧城市黑客松</span></footer>
+        <footer class="page-footer"><span><Icon name="scales" :size="14" />訴願審查助手 · 讓審查更有依據</span><span>新北市政府法制局</span></footer>
       </main>
     </div>
     <div v-if="toast" class="toast" role="status"><Icon name="info" :size="18" />{{ toast }}</div>

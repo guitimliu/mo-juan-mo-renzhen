@@ -4,3 +4,9 @@
 !.env.example
 .DS_Store
 Thumbs.db
+
+# Local video exports
+*.mp4
+
+# Local video production project
+/videos/

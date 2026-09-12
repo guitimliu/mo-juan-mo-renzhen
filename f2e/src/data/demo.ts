@@ -1,5 +1,6 @@
 import pipeline from './pipeline.json'
 
+export const showDeveloperChecks = false
 export const steps = [
   { title: '文件上傳', short: '上傳', icon: 'upload', description: '匯入案件文件，開始審查流程' },
   { title: 'OCR 辨識', short: 'OCR 對照', icon: 'scan', description: '對照原始文件與辨識文字' },
@@ -7,12 +8,14 @@ export const steps = [
   { title: '法源檢索', short: '法源檢索', icon: 'search', description: '檢視法條、判解、立法理由與相似訴願案件' },
   { title: '決定書草稿', short: '草稿生成', icon: 'edit', description: '逐段核對草稿內容，讓每一份引用都有依據' },
   { title: '正本比對檢核', short: '正本比對', icon: 'list', description: '對照團隊標準答案，檢查段落、引用與五個論理要點' },
-]
+].filter((_, index) => showDeveloperChecks || index < 5)
 export const summary = pipeline.s2
 export const procedure = pipeline.procedure
 export const report = pipeline.detailed_report
 export const validation = pipeline.s5
-export const gaps = pipeline.s4.gaps
+export const gaps = pipeline.s4.gaps.map(gap => gap.startsWith('教示法院待團隊確認：')
+  ? '救濟教示待核對：決定書與引用資料記載的法院不一致，請承辦人確認。'
+  : gap.replace('本次模擬檢索', '本次檢索'))
 export const ocrText = pipeline.s1.petition_text
 export const dispositionText = pipeline.s1.disposition_text
 export const ocrNote = pipeline.s1.ocr_confidence_note
@@ -22,10 +25,10 @@ export const totals = {
   failed: report.checks.filter(c => !c.pass).length,
 }
 export const sources = [
-  ...pipeline.s3.statutes.map((s, i) => ({ id: `statutes[${i}]`, type: '法條', title: s.law, subtitle: `第 ${s.article} 條 · 版本 ${s.version_date}`, content: s.text, tag: '工作包引用' })),
-  ...pipeline.s3.precedents.map((s, i) => ({ id: `precedents[${i}]`, type: '判解', title: s.id, subtitle: `${s.topic} · 模擬分數 ${s.score}`, content: s.excerpt, tag: '示範判解' })),
+  ...pipeline.s3.statutes.map((s, i) => ({ id: `statutes[${i}]`, type: '法條', title: s.law, subtitle: `第 ${s.article} 條 · 版本 ${s.version_date}`, content: s.text, tag: '法條' })),
+  ...pipeline.s3.precedents.map((s, i) => ({ id: `precedents[${i}]`, type: '判解', title: s.id, subtitle: `${s.topic} · 相關度 ${s.score}`, content: s.excerpt, tag: '判解' })),
   ...pipeline.s3.interpretations.map((s, i) => ({ id: `interpretations[${i}]`, type: '立法理由', title: s.id, subtitle: '取自提供的原決定書引文', content: s.excerpt, tag: '原決定書引文' })),
-  ...pipeline.s3.similar_cases.map((s, i) => ({ id: `similar_cases[${i}]`, type: '相似案', title: `${s.id} 違反洗錢防制法事件`, subtitle: `${s.result} · 模擬分數 ${s.score}`, content: s.why_similar, tag: s.result })),
+  ...pipeline.s3.similar_cases.map((s, i) => ({ id: `similar_cases[${i}]`, type: '相似案', title: `${s.id} 違反洗錢防制法事件`, subtitle: `${s.result} · 相關度 ${s.score}`, content: s.why_similar, tag: s.result })),
 ]
 // S4 has global citations, not per-paragraph associations. This is demo-only mapping.
 const reasonSources = [['statutes[0]'], ['statutes[0]'], ['statutes[0]', 'interpretations[0]', 'interpretations[1]'], ['statutes[1]']]
