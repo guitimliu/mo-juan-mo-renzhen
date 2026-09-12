@@ -4,7 +4,7 @@
 // 空字串＝同源（Docker 內由 nginx 把 /api 反向代理到後端）；未設定才退回本機 8000
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/+$/, '')
 export const POLL_INTERVAL_MS = 1500   // 附錄 A：輪詢 1500 ms
-export const POLL_TIMEOUT_MS = 120_000 // 附錄 A：建議 120 s 逾時
+export const POLL_TIMEOUT_MS = 300_000 // 附錄 A 建議 120 s，但 bedrock 模式全鏈約 2–2.5 分鐘（OCR 36 s＋Generate 60–80 s），放寬到 300 s（同 nginx proxy_read_timeout）
 export const REQUEST_TIMEOUT_MS = 30_000 // 單次 fetch 逾時（後端掛住時不會永遠等）
 
 export type StageStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped'

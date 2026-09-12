@@ -194,7 +194,7 @@ async function runDemo() {
         return
       }
       if (env.status === 'error') return failRun(`後端處理失敗：${env.error ?? '未知錯誤'}`)
-      if (Date.now() - startedAt > POLL_TIMEOUT_MS) return failRun('等待後端逾時（120 秒），請重試')
+      if (Date.now() - startedAt > POLL_TIMEOUT_MS) return failRun(`等待後端逾時（${POLL_TIMEOUT_MS / 1000} 秒），請重試`)
     }
   } catch (error) {
     if (myRun !== run) return

@@ -118,6 +118,7 @@ ADAPTER=bedrock uvicorn app.main:app --reload --port 8000
   - `similar_cases`：`doc_no` 對回 `data/petitions.jsonl` 取結果／主文／機關／日期；**用原處分文號數字排除本案自己的決定書**（demo 的 113-16 在語料裡）。
   - 實測 113-16：判解＝114 簡上 13、立法理由第 2/3/5 點、相似案 113-18（撤銷）／113-15（駁回）／114-15；配正本改寫草稿跑 S5，gold 法條＋立法理由全部 recalled，只缺語料裡本來就沒有的三篇簡字判決（與 03 範例相同）。
 - Generate（約 80 s、18k input／4.7k output tokens）：**主文版本由規則決定**（09 規則 5：S2.5 `admissible=false` → 不受理版並對回 77 條款次；有 `defect_flags` → 撤銷版；其餘 → 駁回版），模型不得改；system prompt ＝ `09_生成提示詞.md`＋`04_決定書模板.json`＋`05_few_shot.json` 整份；user 帶 S2／S2.5／精簡 S3（每筆標 `statutes[i]` 等 source）。輸出後：`header` 用 S2 覆寫、`holding` 限定模板句、`instruction` 依 04 規則（撤銷不附／其餘臺北高等）、`reasons` 正規化成「一、…」連續編號、`citations` 一律由 `stub.build_citations()` 從本文比對檢索結果產生（模型自己寫的不採信）、`gaps` = `find_gaps()` ＋ 模型標的。
+- Docker Compose bedrock 模式已實測（`.env` 填 `ADAPTER=bedrock`＋三個 AWS 變數）：經 nginx `POST /api/cases` → 六階段全 done，**116 s**（S1 36 s／S2 10 s／S3 7 s／S4 67 s），S5 28/31。因此前端輪詢逾時已從 120 s 放寬到 300 s（`f2e/src/api.ts` `POLL_TIMEOUT_MS`）。同機 8000／8080 被佔時在 `.env` 改 `BACKEND_PORT`／`FRONTEND_PORT`。
 - 真實跑 113-16（S2→S5 共 77 s）：S5 **29/31**——段落 5/5、格式 9/9、結論 3/3、事實 1/1、引用 4/4、防幻覺 3/3、citations 11 筆全 grounded、gaps 空；理由三引了 114 簡上 13 字號、立法理由第 3/5 點、行政罰法 7 條（責任條件）。剩 2 分（R3「LINE 對話顯示訴願人有警覺」、卷內證據 4 項）是正本才有的卷證內容，模擬訴願書／告誡書裡沒有，模型不該自己編——這是輸入資料的天花板，不是 prompt 問題。
 
 ## Knowledge Base（S3 檢索用，已建好）
