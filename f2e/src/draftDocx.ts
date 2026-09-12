@@ -1,13 +1,14 @@
-import { draft } from './data/demo'
+import { fixture } from './data/demo'
+import type { DraftMeta, DraftParts } from './exportDraft'
 
-export async function createDocx() {
+export async function createDocx(draft: DraftParts = fixture.draft, meta: DraftMeta = { caseLabel: '113-16', appellant: '王小明', agency: '新北市政府警察局新店分局', caseType: '違反洗錢防制法事件' }) {
   const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle, Footer, PageNumber, TabStopType } = await import('docx')
   const body = (text: string) => new Paragraph({
     alignment: AlignmentType.JUSTIFIED, widowControl: true,
     children: text.split('\n').map((line, index) => new TextRun({ text: line, break: index ? 1 : 0 })),
   })
   const document = new Document({
-    title: '113-16 訴願決定書草稿', creator: '新北市政府法制局',
+    title: `${meta.caseLabel} 訴願決定書草稿`, creator: '新北市政府法制局',
     styles: {
       default: { document: { run: { font: '新細明體', size: 24, color: '576174' }, paragraph: { spacing: { after: 160, line: 400 } } } },
       paragraphStyles: [
@@ -21,8 +22,8 @@ export async function createDocx() {
       children: [
         new Paragraph({ tabStops: [{ type: TabStopType.RIGHT, position: 9986 }], children: [new TextRun({ text: '新北市政府', color: '344157' }), new TextRun({ text: '\t草 稿', color: 'AF9569', size: 20 })] }),
         new Paragraph({ text: '訴願決定書', heading: HeadingLevel.TITLE }),
-        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 320 }, children: [new TextRun({ text: '案號：113-16', size: 20, color: '8991A0' })], keepNext: true }),
-        ...[['訴願人', '王小明'], ['原處分機關', '新北市政府警察局新店分局'], ['案由', '違反洗錢防制法事件']].map(([label, value], i) => new Paragraph({
+        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 320 }, children: [new TextRun({ text: `案號：${meta.caseLabel}`, size: 20, color: '8991A0' })], keepNext: true }),
+        ...[['訴願人', meta.appellant], ['原處分機關', meta.agency], ['案由', meta.caseType]].map(([label, value], i) => new Paragraph({
           tabStops: [{ type: TabStopType.LEFT, position: 1700 }], keepNext: true,
           spacing: { before: i === 0 ? 160 : 0, after: i === 2 ? 280 : 100 },
           border: i === 0 ? { top: { color: 'E5E8ED', style: BorderStyle.SINGLE, size: 4, space: 10 } } : i === 2 ? { bottom: { color: 'E5E8ED', style: BorderStyle.SINGLE, size: 4, space: 10 } } : undefined,

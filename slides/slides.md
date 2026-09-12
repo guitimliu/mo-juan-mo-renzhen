@@ -94,11 +94,11 @@ class: data-slide
 
 <div class="eyebrow">技術可行性</div>
 
-# 一個協調器，串接各段服務
+# 一個協調器，串接各段服務（已實作）
 
-<div class="system"><div class="node"><h2>Demo 前端</h2><p>上傳兩份文件<br>展示處理結果</p></div><div class="arrow">→</div><div class="core"><h2>FastAPI 協調器</h2><p>五階段交換 JSON，狀態存記憶體<br>前端建立案件，再輪詢取得結果</p></div><div class="arrow">↔</div><div class="node"><h2>AWS 服務</h2><p>Bedrock 辨識／生成<br>S3／Knowledge Base</p></div></div><div class="risk-row"><div><h2>入口先驗證</h2><p>先測手寫中文辨識；效果不足時，<br>依計畫改用列印文件保留流程展示。</p></div><div><h2>整合先跑通</h2><p>先接模擬 JSON，再逐段替換真服務，<br>檢查段落、引用召回與結論一致性。</p></div></div>
+<img src="/images/aws-architecture.png" style="width:92%;margin:0 auto;display:block;border:1px solid #e5e7eb;border-radius:8px" alt="AWS 架構與資料流" />
 
-<div class="foot"><span>規劃：法條 JSON 查表；判解與案例採 Titan 向量＋OpenSearch</span><span>08 / 10</span></div>
+<div class="foot"><span>Docker Compose（Vue＋FastAPI）→ Bedrock Converse（Claude Sonnet 5，帳戶不可用時自動降級 4.6）＋ Knowledge Base（Titan v2＋S3 Vectors）｜113-16 實測 S5 29/31</span><span>08 / 10</span></div>
 
 ---
 class: video-demo

@@ -1,0 +1,179 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1860" viewBox="0 0 2400 1860">
+<title>墨卷莫認真 — AWS 架構圖</title>
+<desc>Docker Compose 的 Vue frontend 與 FastAPI backend，六階段管線串接 Amazon Bedrock Converse API 及 Knowledge Base；包含本機資料、無 AI 規則檢核、離線 PDF 建置與 S3 Vectors。</desc>
+<defs>
+ <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#65788A"/></marker>
+ <marker id="awsarrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#CC7900"/></marker>
+</defs>
+<style>
+text { font-family: 'Noto Sans CJK TC', sans-serif; fill:#232F3E; font-size:22px; }
+.title {font-size:43px;font-weight:700}.heading{font-size:29px;font-weight:700}.sub{font-size:20px;fill:#536579}.small{font-size:18px;fill:#536579}.label{font-size:19px;fill:#8B5200}.bold{font-weight:700}.green{fill:#217344}.white{fill:white}
+</style>
+<rect width="2400" height="1860" fill="white"/>
+<text x="55" y="76" class="title">墨卷莫認真</text>
+<text x="345" y="75" class="heading">AWS 架構與資料流</text>
+<text x="55" y="120" class="sub">新北市政府法制局｜訴願決定書草稿助理｜黑客松 POC</text>
+<rect x="55" y="165" width="1045" height="1400" rx="22" fill="#F6F9FC" stroke="#8BA1B5" stroke-width="2" stroke-dasharray="12 8"/>
+<text x="85" y="210" class="heading">本機部署</text>
+<text x="265" y="210" class="sub">Docker Compose</text>
+<rect x="1275" y="165" width="1070" height="1400" rx="22" fill="#FFFCF7" stroke="#FF9900" stroke-width="2"/>
+<text x="1305" y="210" class="heading">AWS 雲端</text>
+<text x="1485" y="210" class="sub">AWS Cloud · us-west-2</text>
+<rect x="85" y="250" width="235" height="110" rx="14" fill="#FFFFFF" stroke="#8BA1B5" stroke-width="2"/>
+<text x="106" y="291" class="bold">承辦人瀏覽器</text>
+<text x="106" y="324" class="sub">User Browser</text>
+<rect x="405" y="250" width="650" height="110" rx="14" fill="#E8EFF6" stroke="#8BA1B5" stroke-width="2"/>
+<text x="425" y="287" class="bold">前端容器 frontend</text>
+<text x="425" y="321" class="sub">Vue 3 + Vite｜nginx 靜態服務 · :8080</text>
+<path d="M320 303 H405" fill="none" stroke="#65788A" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="337" y="286" class="small">HTTP</text>
+<rect x="335" y="405" width="720" height="700" rx="14" fill="#FFFFFF" stroke="#8BA1B5" stroke-width="2"/>
+<text x="355" y="443" class="bold">後端容器 backend</text>
+<text x="660" y="443" class="sub">FastAPI + uvicorn · :8000</text>
+<path d="M715 360 V405" fill="none" stroke="#65788A" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="425" y="390" class="small">/api/* 同源反向代理（無 CORS）</text>
+<rect x="85" y="410" width="220" height="180" rx="14" fill="#FFFFFF" stroke="#B9C8D6" stroke-width="2"/>
+<text x="103" y="449" class="bold">案件輸入</text>
+<text x="103" y="478" class="sub">Case Inputs</text>
+<text x="103" y="521" class="" style="font-size:19px">訴願書＋原處分書</text>
+<text x="103" y="550" class="" style="font-size:18px">照片先遮罩 → bytes</text>
+<path d="M196 410 V360" fill="none" stroke="#65788A" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="85" y="670" width="220" height="205" rx="14" fill="#FFFFFF" stroke="#B9C8D6" stroke-width="2"/>
+<text x="103" y="710" class="bold">進度輪詢</text>
+<text x="103" y="739" class="sub">Status Polling</text>
+<text x="103" y="783" class="small">前端每 1.5 秒</text>
+<text x="103" y="815" class="" style="font-size:17px">GET /api/cases/{id}</text>
+<text x="103" y="846" class="" style="font-size:17px">回傳階段／結果 JSON</text>
+<rect x="85" y="940" width="220" height="150" rx="14" fill="#FFFFFF" stroke="#B9C8D6" stroke-width="2"/>
+<text x="103" y="980" class="bold">草稿與檢核表</text>
+<text x="103" y="1010" class="sub">Draft &amp; Checklist</text>
+<text x="103" y="1050" class="small">承辦人檢視、修訂</text>
+<rect x="355" y="470" width="680" height="70" rx="10" fill="#EFF4F9" stroke="#BBCBD9" stroke-width="2"/>
+<text x="373" y="499" class="bold">S1  OCR</text>
+<text x="373" y="526" class="small">影像文字辨識</text>
+<rect x="355" y="565" width="680" height="70" rx="10" fill="#EFF4F9" stroke="#BBCBD9" stroke-width="2"/>
+<text x="373" y="594" class="bold">S2  Extract</text>
+<text x="373" y="621" class="small">兩份全文 → 案件摘要 JSON</text>
+<rect x="355" y="660" width="680" height="75" rx="10" fill="#ECF7EF" stroke="#82B995" stroke-width="2"/>
+<text x="373" y="689" class="bold green">S2.5  程序檢核</text>
+<text x="373" y="716" class="small">rules.py｜決定主文版本</text>
+<text x="932" y="691" class="bold green" style="font-size:20px">無 AI</text>
+<rect x="355" y="770" width="680" height="75" rx="10" fill="#EFF4F9" stroke="#BBCBD9" stroke-width="2"/>
+<text x="373" y="799" class="bold">S3  Retrieval</text>
+<text x="373" y="826" class="small">三類檢索 → 篩選＋why_similar</text>
+<rect x="355" y="900" width="680" height="70" rx="10" fill="#EFF4F9" stroke="#BBCBD9" stroke-width="2"/>
+<text x="373" y="929" class="bold">S4  Generate</text>
+<text x="373" y="956" class="small">摘要＋檢索資料 → 決定書草稿</text>
+<rect x="355" y="1000" width="680" height="75" rx="10" fill="#ECF7EF" stroke="#82B995" stroke-width="2"/>
+<text x="373" y="1029" class="bold green">S5  檢核</text>
+<text x="373" y="1056" class="small">07_檢核.py｜與正本比對</text>
+<text x="932" y="1031" class="bold green" style="font-size:20px">無 AI</text>
+<path d="M690 540 V565" fill="none" stroke="#65788A" stroke-width="2.4" marker-end="url(#arrow)"/>
+<path d="M690 635 V660" fill="none" stroke="#65788A" stroke-width="2.4" marker-end="url(#arrow)"/>
+<path d="M690 735 V770" fill="none" stroke="#65788A" stroke-width="2.4" marker-end="url(#arrow)"/>
+<path d="M690 845 V900" fill="none" stroke="#65788A" stroke-width="2.4" marker-end="url(#arrow)"/>
+<path d="M690 970 V1000" fill="none" stroke="#65788A" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="715" y="879" class="small">合併精確法條與本機案例</text>
+<path d="M355 1036 H305" fill="none" stroke="#65788A" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="1310" y="250" width="1000" height="760" rx="14" fill="#FFFFFF" stroke="#E4AA50" stroke-width="2"/>
+<rect x="1310" y="250" width="1000" height="80" rx="14" fill="#232F3E" stroke="#232F3E" stroke-width="2"/>
+<text x="1335" y="284" class="bold white">模型推論</text>
+<text x="1500" y="284" class="white" style="font-size:25px">Amazon Bedrock – Converse API</text>
+<text x="1335" y="312" class="white" style="font-size:18px">所有呼叫共用 ≤ 1 RPS RateLimiter（主辦方限制）</text>
+<text x="1335" y="370" class="bold" style="font-size:24px">預設全階段：Claude Sonnet 5（BEDROCK_MODEL_ID）</text>
+<text x="1335" y="405" class="bold" style="font-size:24px">帳戶不可用時自動降級：Sonnet 4.6（BEDROCK_FALLBACK_MODEL_ID）</text>
+<rect x="1330" y="470" width="960" height="70" rx="10" fill="#FFF5E5" stroke="#F0D0A0" stroke-width="2"/>
+<text x="1350" y="499" class="bold" style="font-size:23px">S1  多模態 OCR｜影像 → 全文</text>
+<text x="1350" y="527" class="small">不用 Textract：不支援中文</text>
+<rect x="1330" y="565" width="960" height="70" rx="10" fill="#FFF5E5" stroke="#F0D0A0" stroke-width="2"/>
+<text x="1350" y="594" class="bold" style="font-size:23px">S2  資料萃取｜兩份全文 → 案件摘要 JSON</text>
+<text x="1350" y="622" class="small">Claude Sonnet 5（可個別覆寫 BEDROCK_EXTRACT_MODEL_ID）</text>
+<rect x="1330" y="770" width="960" height="75" rx="10" fill="#FFF5E5" stroke="#F0D0A0" stroke-width="2"/>
+<text x="1350" y="799" class="bold" style="font-size:23px">S3  候選篩選與相似原因｜why_similar</text>
+<text x="1350" y="827" class="small">Claude Sonnet 5（可個別覆寫 BEDROCK_RETRIEVAL_MODEL_ID）</text>
+<rect x="1330" y="900" width="960" height="80" rx="10" fill="#FFF5E5" stroke="#F0D0A0" stroke-width="2"/>
+<text x="1350" y="929" class="bold" style="font-size:23px">S4  草稿生成｜Claude Sonnet 5</text>
+<text x="1350" y="957" class="small">system prompt = 09 + 04 + 05；主文版本依 S2.5 規則</text>
+<text x="1340" y="691" class="green" style="font-size:22px">模型不參與 S2.5 程序規則與 S5 檢核</text>
+<text x="1340" y="726" class="sub">AI 呼叫由 backend 統一節流</text>
+<path d="M1035 505 H1330" fill="none" stroke="#CC7900" stroke-width="2.4" marker-end="url(#awsarrow)" marker-start="url(#awsarrow)"/>
+<rect x="1107" y="456" width="160" height="43" rx="3" fill="white" stroke="white" stroke-width="2"/>
+<text x="1114" y="475" class="label" style="font-size:17px">S1  影像 bytes</text>
+<text x="1114" y="496" class="label" style="font-size:17px">↔ OCR 全文</text>
+<path d="M1035 600 H1330" fill="none" stroke="#CC7900" stroke-width="2.4" marker-end="url(#awsarrow)" marker-start="url(#awsarrow)"/>
+<rect x="1107" y="551" width="160" height="43" rx="3" fill="white" stroke="white" stroke-width="2"/>
+<text x="1114" y="570" class="label" style="font-size:17px">S2  兩份全文</text>
+<text x="1114" y="591" class="label" style="font-size:17px">↔ 摘要 JSON</text>
+<path d="M1035 808 H1330" fill="none" stroke="#CC7900" stroke-width="2.4" marker-end="url(#awsarrow)" marker-start="url(#awsarrow)"/>
+<rect x="1107" y="759" width="160" height="43" rx="3" fill="white" stroke="white" stroke-width="2"/>
+<text x="1114" y="778" class="label" style="font-size:17px">S3  候選案例</text>
+<text x="1114" y="799" class="label" style="font-size:17px">↔ 篩選 JSON</text>
+<path d="M1035 936 H1330" fill="none" stroke="#CC7900" stroke-width="2.4" marker-end="url(#awsarrow)" marker-start="url(#awsarrow)"/>
+<rect x="1107" y="887" width="160" height="43" rx="3" fill="white" stroke="white" stroke-width="2"/>
+<text x="1114" y="906" class="label" style="font-size:17px">S4  prompt</text>
+<text x="1114" y="927" class="label" style="font-size:17px">↔ 草稿文字</text>
+<rect x="85" y="1140" width="970" height="240" rx="14" fill="#E8EFF6" stroke="#B9C8D6" stroke-width="2"/>
+<text x="108" y="1177" class="bold">本機資料與提示詞</text>
+<text x="385" y="1177" class="sub">Local Data &amp; Prompts</text>
+<text x="108" y="1220" class="" style="font-size:23px">data/statutes.json｜全量 2,214 條法條，S3 精確查表</text>
+<text x="108" y="1260" class="" style="font-size:23px">data/petitions.jsonl｜101 件歷史決定書結構化資料</text>
+<text x="108" y="1300" class="" style="font-size:22px">data/poc/｜04 模板 · 05 few-shot · 09 生成提示詞 · 07 檢核</text>
+<text x="108" y="1345" class="sub">S3 合併本機查表與 KB 檢索；S4 組裝提示詞；S5 比對正本</text>
+<path d="M690 1140 V1105" fill="none" stroke="#65788A" stroke-width="2.4" stroke-dasharray="8 7" marker-end="url(#arrow)"/>
+<rect x="85" y="1410" width="970" height="125" rx="14" fill="#FFFFFF" stroke="#B9C8D6" stroke-width="2"/>
+<text x="108" y="1447" class="bold">臨時憑證與呼叫控管</text>
+<text x="438" y="1447" class="sub">Credentials &amp; Rate Limiter</text>
+<text x="108" y="1484" class="" style="font-size:22px">.env｜主辦方臨時 AWS 憑證（ASIA…）｜us-west-2</text>
+<text x="108" y="1517" class="sub">backend 對所有 Bedrock 呼叫共用一個 ≤ 1 RPS RateLimiter</text>
+<rect x="1310" y="1050" width="1000" height="490" rx="14" fill="#FFFFFF" stroke="#E4AA50" stroke-width="2"/>
+<text x="1335" y="1088" class="bold">知識庫檢索</text>
+<text x="1510" y="1088" class="bold" style="font-size:25px">Amazon Bedrock Knowledge Base</text>
+<text x="1335" y="1124" class="sub">ZOMMOWFOT2 · VECTOR｜S3 Retrieval：三次 Retrieve</text>
+<text x="1335" y="1158" class="" style="font-size:20px">metadata filter category = precedent / interpretation / decision</text>
+<text x="1335" y="1190" class="sub">排除本案自己的決定書；回傳片段與 metadata 供 S3 篩選</text>
+<path d="M1035 837 H1191 V1137 H1310" fill="none" stroke="#CC7900" stroke-width="2.4" marker-end="url(#awsarrow)" marker-start="url(#awsarrow)"/>
+<text x="1112" y="1035" class="label" style="font-size:18px">S3 Retrieve</text>
+<text x="1112" y="1062" class="label" style="font-size:18px">查詢 ↔ 片段</text>
+<rect x="1330" y="1215" width="460" height="99" rx="9" fill="#FFF5E5" stroke="#F0D0A0" stroke-width="2"/>
+<text x="1348" y="1247" class="bold">向量嵌入</text>
+<text x="1348" y="1276" class="" style="font-size:20px">Amazon Titan Text Embeddings v2</text>
+<text x="1348" y="1302" class="small">1024 維 · Embedding</text>
+<rect x="1820" y="1215" width="470" height="99" rx="9" fill="#FFF5E5" stroke="#F0D0A0" stroke-width="2"/>
+<text x="1838" y="1247" class="bold" style="font-size:22px">向量儲存｜Amazon S3 Vectors</text>
+<text x="1838" y="1276" class="" style="font-size:18px">bucket: mo-juan-mo-renzhen-vectors</text>
+<text x="1838" y="1302" class="small">index: kb-text</text>
+<path d="M1790 1262 H1820" fill="none" stroke="#CC7900" stroke-width="2.4" marker-end="url(#awsarrow)"/>
+<rect x="1330" y="1340" width="960" height="113" rx="9" fill="#FFF5E5" stroke="#F0D0A0" stroke-width="2"/>
+<text x="1348" y="1371" class="bold" style="font-size:22px">語料來源｜Amazon S3</text>
+<text x="1680" y="1371" class="" style="font-size:20px">bucket: mo-juan-mo-renzhen-kb-text</text>
+<text x="1348" y="1405" class="" style="font-size:20px">141 篇純文字 + metadata.json｜法規 11 · 判解 19 · 函釋 10 · 歷史決定書 101</text>
+<text x="1348" y="1433" class="small">主辦方 PDF 以 pdftotext 抽出中文；Bedrock 內建 parser 抽不出中文</text>
+<path d="M1550 1340 V1314" fill="none" stroke="#CC7900" stroke-width="2.4" marker-end="url(#awsarrow)"/>
+<text x="1335" y="1490" class="" style="font-size:20px">IAM role · AmazonBedrockExecutionRoleForKnowledgeBase_mjmr_text</text>
+<text x="1335" y="1521" class="small">權限：S3 讀取 + Titan invoke + S3 Vectors</text>
+<rect x="55" y="1610" width="2290" height="157" rx="14" fill="#FAFBFC" stroke="#CFD6DE" stroke-width="2" stroke-dasharray="8 8"/>
+<text x="80" y="1648" class="bold" style="font-size:24px">離線建置流程</text>
+<text x="280" y="1648" class="sub">Offline Knowledge Base Build</text>
+<rect x="85" y="1670" width="235" height="76" rx="8" fill="#FFFFFF" stroke="#D6DDE4" stroke-width="2"/>
+<text x="101" y="1701" class="bold" style="font-size:20px">主辦方 PDF</text>
+<text x="101" y="1729" class="small" style="font-size:18px">Source Documents</text>
+<rect x="405" y="1670" width="550" height="76" rx="8" fill="#FFFFFF" stroke="#D6DDE4" stroke-width="2"/>
+<text x="421" y="1701" class="bold" style="font-size:20px">tools/build_kb_corpus.py</text>
+<text x="421" y="1729" class="small" style="font-size:18px">pdftotext → 純文字 + metadata.json</text>
+<rect x="1035" y="1670" width="290" height="76" rx="8" fill="#FFFFFF" stroke="#D6DDE4" stroke-width="2"/>
+<text x="1051" y="1701" class="bold" style="font-size:20px">上傳 S3 語料</text>
+<text x="1051" y="1729" class="small" style="font-size:18px">aws s3 sync</text>
+<rect x="1415" y="1670" width="335" height="76" rx="8" fill="#FFFFFF" stroke="#D6DDE4" stroke-width="2"/>
+<text x="1431" y="1701" class="bold" style="font-size:20px">啟動資料匯入</text>
+<text x="1431" y="1729" class="small" style="font-size:18px">start-ingestion-job</text>
+<rect x="1850" y="1670" width="420" height="76" rx="8" fill="#FFFFFF" stroke="#D6DDE4" stroke-width="2"/>
+<text x="1866" y="1701" class="bold" style="font-size:20px">建立知識庫索引</text>
+<text x="1866" y="1729" class="small" style="font-size:18px">Knowledge Base · ZOMMOWFOT2</text>
+<path d="M320 1710 H405" fill="none" stroke="#65788A" stroke-width="2.4" stroke-dasharray="8 7" marker-end="url(#arrow)"/>
+<path d="M955 1710 H1035" fill="none" stroke="#65788A" stroke-width="2.4" stroke-dasharray="8 7" marker-end="url(#arrow)"/>
+<path d="M1325 1710 H1415" fill="none" stroke="#65788A" stroke-width="2.4" stroke-dasharray="8 7" marker-end="url(#arrow)"/>
+<path d="M1750 1710 H1850" fill="none" stroke="#65788A" stroke-width="2.4" stroke-dasharray="8 7" marker-end="url(#arrow)"/>
+<path d="M2240 1670 V1567 H2330 V1100 H2310" fill="none" stroke="#65788A" stroke-width="2.4" stroke-dasharray="8 7" marker-end="url(#arrow)"/>
+<text x="60" y="1820" class="small">圖例：藍灰＝本機容器／資料　橘色＝AWS 服務　綠色＝無 AI 規則檢核　虛線＝離線／本機資料供應</text>
+<text x="1350" y="1820" class="small" style="font-size:18px">Bedrock ≤ 1 RPS｜區域 us-west-2｜AWS 帳戶內不放個資（影像先遮罩）</text>
+</svg>
