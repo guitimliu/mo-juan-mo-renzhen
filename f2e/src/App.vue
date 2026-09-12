@@ -2,14 +2,21 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import Icon from './components/AppIcon.vue'
 import ProcessingStatus from './components/ProcessingStatus.vue'
+import LoginPanel from './components/LoginPanel.vue'
 import { showDeveloperChecks, steps, fixture, empty, buildView, stagesFrom } from './data/demo'
-import { ApiError, createCase, getCase, getHealth, sleep, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, type CaseEnvelope } from './api'
+import { ApiError, createCase, getCase, getHealth, sleep, fetchDemoFiles, getToken, setToken, onUnauthorized, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, type CaseEnvelope, type ModelConfig } from './api'
 
 // 資料流：view 由 envelope（後端 API）或 fixture（保底）建出；template 透過下列 computed 讀取。
 const view = ref(fixture)
 const dataSource = ref<'fixture' | 'api'>('fixture')
 const caseId = ref('')
 const adapterMode = ref<string | null>(null)
+const authRequired = ref(false)
+const loggedIn = ref(!!getToken())
+const currentUser = ref('')
+const models = ref<ModelConfig | null>(null)
+const showLogin = computed(() => authRequired.value && !loggedIn.value)
+const activeModels = computed(() => models.value ? [...new Set(Object.values(models.value.stages).map(s => s.active))].map(m => m.replace(/^(us|global)\.anthropic\./, '')).join(' / ') : '')
 const processingError = ref('')
 const sources = computed(() => view.value.sources)
 const draft = computed(() => view.value.draft)
@@ -26,7 +33,7 @@ const dispositionText = computed(() => view.value.dispositionText)
 const ocrNote = computed(() => view.value.ocrNote)
 const caseLabel = computed(() => dataSource.value === 'api' ? caseId.value : useSample.value ? '113-16' : '新建案件')
 const caseTitle = computed(() => summary.value.case_type || (useSample.value ? '違反洗錢防制法事件' : '待匯入案件文件'))
-const modeLabel = computed(() => adapterMode.value === 'stub' ? '示範資料（stub）' : adapterMode.value ? `後端 ${adapterMode.value}` : '後端未連線')
+const modeLabel = computed(() => adapterMode.value === 'stub' ? '示範資料（stub）' : adapterMode.value ? `後端 ${adapterMode.value}${activeModels.value ? ' · ' + activeModels.value : ''}` : '後端未連線')
 const sourceLabel = computed(() => dataSource.value === 'api' ? `後端 API · ${modeLabel.value}` : '本機 fixture（保底）')
 const provenanceNote = computed(() => view.value.provenance || (dataSource.value === 'api' ? '草稿由後端生成，仍須人工核對。' : '本機 fixture：正本轉製，非 AI 生成。'))
 const reportNote = computed(() => `此報告由 07_檢核.py 對${dataSource.value === 'api' ? '後端回傳' : 'fixture'}的草稿與檢索結果實際計算；stub 模式草稿為正本改寫，不代表 AI 生成品質。` + (view.value.failedItems.length ? `未通過：${view.value.failedItems.join('；')}。` : ''))
@@ -106,6 +113,26 @@ function selectFile(event: Event, index: number) {
     input.value = ''
     return
   }
+  applyFile(file, index)
+}
+// Demo 文件：載入 public/demo 的兩張模擬影像到上傳格；andRun=true 直接開始分析（一鍵測試）
+const demoLoading = ref(false)
+async function loadDemoFiles(andRun = false) {
+  if (running.value || demoLoading.value) return
+  demoLoading.value = true
+  try {
+    const [petition, disposition] = await fetchDemoFiles()
+    applyFile(petition!, 0)
+    applyFile(disposition!, 1)
+    notify('已載入 Demo 文件（113-16 模擬訴願書＋書面告誡，人名帳號皆虛構）')
+    if (andRun) await runDemo()
+  } catch (e) {
+    notify(e instanceof ApiError ? e.message : `載入 Demo 文件失敗：${String(e)}`)
+  } finally {
+    demoLoading.value = false
+  }
+}
+function applyFile(file: File, index: number) {
   if (previews.value[index]) URL.revokeObjectURL(previews.value[index]!)
   files.value[index] = file
   previews.value[index] = URL.createObjectURL(file)
@@ -203,11 +230,27 @@ async function runDemo() {
 }
 async function refreshHealth() {
   try {
-    adapterMode.value = (await getHealth()).adapter_mode
+    const h = await getHealth()
+    adapterMode.value = h.adapter_mode
+    authRequired.value = !!h.auth_required
+    models.value = h.models ?? null
+    if (!authRequired.value) loggedIn.value = true       // 後端沒開驗證：直接進工作台
   } catch {
     adapterMode.value = null
   }
 }
+function onLoggedIn(username: string) {
+  loggedIn.value = true
+  currentUser.value = username
+  refreshHealth()
+}
+function logout() {
+  setToken(null)
+  loggedIn.value = false
+  currentUser.value = ''
+  if (running.value) stopDemo()
+}
+onUnauthorized.handler = () => { loggedIn.value = false; notify('登入已失效，請重新登入') }
 const exporting = ref(false)
 async function downloadDraft(format: 'pdf' | 'docx' = 'pdf') {
   if (exporting.value) return
@@ -228,7 +271,8 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(toastTimer); previews.val
 </script>
 
 <template>
-  <div class="workspace">
+  <LoginPanel v-if="showLogin" :mode-label="modeLabel" @done="onLoggedIn" />
+  <div v-else class="workspace">
     <aside class="sidebar">
       <a class="brand" href="#" @click.prevent="loadSample"><span class="brand-symbol"><Icon name="scales" :size="25" /></span><span>訴願審查助手<small>智慧案件審查工作台</small></span></a>
       <div class="workspace-label">法制局工作空間</div>
@@ -238,7 +282,7 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(toastTimer); previews.val
       <button class="case-nav" @click="active = ready ? 4 : 0"><Icon name="file" /><span><b>{{ caseLabel }}</b><small>{{ caseTitle }}</small></span></button>
       <div class="side-heading flow-heading">審查流程</div>
       <nav aria-label="審查流程"><button v-for="(step, i) in steps" :key="step.title" class="side-step" :class="{ selected: active === i }" :disabled="!stepAvailable(i)" @click="active = i"><Icon :name="step.icon" :size="18" /><span>{{ step.title }}</span><Icon v-if="ready && i < 4" name="check" :size="14" /><span v-else-if="i === 4 && ready" class="little-dot"></span></button></nav>
-      <div class="side-bottom"><div class="user"><span class="avatar">E</span><span>案件工作空間<small>{{ adapterMode ? modeLabel : '後端未連線 · 僅本機 fixture' }}</small></span><span class="online" :title="modeLabel"></span></div></div>
+      <div class="side-bottom"><div class="user"><span class="avatar">{{ (currentUser || 'E').slice(0, 1).toUpperCase() }}</span><span>{{ currentUser || '案件工作空間' }}<small>{{ adapterMode ? modeLabel : '後端未連線 · 僅本機 fixture' }}</small></span><button v-if="authRequired" class="logout" title="登出" @click="logout"><Icon name="arrow" :size="14" /></button><span v-else class="online" :title="modeLabel"></span></div></div>
     </aside>
 
     <div class="main-shell">
@@ -261,7 +305,7 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(toastTimer); previews.val
   <small id="service-date-note">請選擇西元日期（例如民國 113 年為西元 2024 年）。</small>
 </div>
           <section v-if="!processingVisible" class="panel upload-panel"><div class="panel-title"><Icon name="upload" /><h3>匯入案件文件</h3><span class="tag">2 份必要文件</span></div><p class="muted">請上傳清晰的訴願書與原處分書影像，送交後端分析。</p><div class="upload-grid"><label v-for="(label, i) in ['訴願書', '原處分書']" :key="label" class="upload-zone"><input type="file" accept="image/jpeg,image/png,image/webp" :disabled="running" @change="selectFile($event, i)" /><img v-if="previews[i]" :src="previews[i]" :alt="label + '預覽'" /><Icon v-else name="upload" :size="30" /><b>{{ label }}</b><span>{{ fileNames[i] }}</span><small>點選選擇圖片 · JPG / PNG / WebP · 上限 10 MB</small></label></div>
-<div class="info-bar"><Icon name="info" :size="18" />{{ adapterMode === 'stub' ? '後端為 stub 模式：影像會上傳但不辨識，各階段回傳工作包內容（草稿＝正本改寫，非 AI 生成）。' : adapterMode ? `後端模式：${adapterMode}` : '後端未連線：按下分析會顯示錯誤，不會退回假資料。' }}</div><div class="panel-actions"><button class="button primary" :disabled="running" @click="runDemo"><Icon name="spark" :size="17" />{{ running ? '後端分析中…' : '開始分析' }}</button></div></section>
+<div class="info-bar"><Icon name="info" :size="18" />{{ adapterMode === 'stub' ? '後端為 stub 模式：影像會上傳但不辨識，各階段回傳工作包內容（草稿＝正本改寫，非 AI 生成）。' : adapterMode ? `後端模式：${adapterMode}` : '後端未連線：按下分析會顯示錯誤，不會退回假資料。' }}</div><div class="panel-actions"><button class="button secondary" :disabled="running || demoLoading" @click="loadDemoFiles(false)"><Icon name="file" :size="17" />{{ demoLoading ? '載入中…' : '載入 Demo 文件' }}</button><button class="button secondary" :disabled="running || demoLoading" @click="loadDemoFiles(true)"><Icon name="spark" :size="17" />一鍵 Demo（載入並分析）</button><button class="button primary" :disabled="running" @click="runDemo"><Icon name="spark" :size="17" />{{ running ? '後端分析中…' : '開始分析' }}</button></div></section>
         </template>
 
         <template v-else-if="active === 1">

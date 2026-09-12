@@ -64,7 +64,16 @@ export interface CaseEnvelope {
   stages: { S1: StageState<S1>; S2: StageState<S2>; S2_5: StageState<S25>; S3: StageState<S3>; S4: StageState<S4>; S5: StageState<S5> }
   error: string | null
 }
-export interface Health { status: string; adapter_mode: string }
+export interface ModelStage { configured: string; active: string }
+export interface ModelConfig { default: string; fallback: string | null; kb_id: string; region: string; stages: Record<'ocr' | 'extract' | 'retrieval' | 'generate', ModelStage>; fallbacks_in_effect: Record<string, string> }
+export interface Health { status: string; adapter_mode: string; auth_required?: boolean; models?: ModelConfig }
+export interface LoginResult { auth_required: boolean; token: string | null; expires_at?: number; username?: string }
+
+// ---- 登入 token（後端 AUTH_USERNAME／AUTH_PASSWORD 有設才需要）----
+const TOKEN_KEY = 'mjmr_token'
+export const getToken = () => { try { return localStorage.getItem(TOKEN_KEY) } catch { return null } }
+export const setToken = (t: string | null) => { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY) } catch { /* 無 localStorage */ } }
+export const onUnauthorized: { handler: (() => void) | null } = { handler: null }   // App 在 401 時切回登入頁
 
 export class ApiError extends Error {
   status?: number
@@ -77,12 +86,16 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response
+  const headers = new Headers(init?.headers)
+  const token = getToken()
+  if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`)
   try {
-    res = await fetch(API_BASE + path, { ...init, signal: init?.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
+    res = await fetch(API_BASE + path, { ...init, headers, signal: init?.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
   } catch (e) {
     if (e instanceof DOMException && e.name === 'TimeoutError') throw new ApiError(`後端 ${API_BASE} 逾時未回應（${REQUEST_TIMEOUT_MS / 1000} 秒）`)
     throw new ApiError(`無法連線後端 ${API_BASE}，請確認 uvicorn 已啟動`)
   }
+  if (res.status === 401 && !path.startsWith('/api/login')) { setToken(null); onUnauthorized.handler?.() }
   if (!res.ok) {
     let detail = `${res.status} ${res.statusText}`
     try {
@@ -95,6 +108,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const getHealth = () => request<Health>('/api/health')
+export const login = (username: string, password: string) =>
+  request<LoginResult>('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) })
+
+// Demo 文件：public/demo/ 的兩張模擬影像（01 訴願書／02 書面告誡渲染成 JPG，人名帳號皆虛構），一鍵載入方便測試
+export const DEMO_FILES = [
+  { url: `${import.meta.env.BASE_URL}demo/petition.jpg`, name: 'demo_訴願書.jpg' },
+  { url: `${import.meta.env.BASE_URL}demo/disposition.jpg`, name: 'demo_書面告誡.jpg' },
+] as const
+export async function fetchDemoFiles(): Promise<File[]> {
+  return Promise.all(DEMO_FILES.map(async d => {
+    const r = await fetch(d.url)
+    if (!r.ok) throw new ApiError(`載入 demo 影像失敗：${d.url}`)
+    return new File([await r.blob()], d.name, { type: 'image/jpeg' })
+  }))
+}
 
 export function createCase(petition: File, disposition: File, serviceDate?: string) {
   const body = new FormData()

@@ -12,9 +12,10 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import pipeline, rules, settings
+from . import auth, pipeline, rules, settings
 from .adapters import bedrock, stub
 from .adapters.base import AdapterSet, UploadedImage
 from .store import CaseStore
@@ -47,6 +48,11 @@ def check_data_files() -> None:
         raise RuntimeError(f"DATA_DIR={settings.DATA_DIR} 缺檔：{'、'.join(missing)}；請確認 repo 根目錄 data/ 已同步（或設 DATA_DIR）")
 
 
+class LoginBody(BaseModel):
+    username: str
+    password: str
+
+
 def create_app(adapters: AdapterSet | None = None, store: CaseStore | None = None, delay_s: float | None = None) -> FastAPI:
     check_data_files()
     adapters = adapters or build_adapters(settings.ADAPTER)
@@ -73,13 +79,27 @@ def create_app(adapters: AdapterSet | None = None, store: CaseStore | None = Non
 
     @api.get("/health")
     async def health():
-        info = {"status": "ok", "adapter_mode": adapters.mode}
+        info = {"status": "ok", "adapter_mode": adapters.mode, "auth_required": auth.enabled()}
         if adapters.mode == "bedrock":
             info["models"] = bedrock.model_config()      # 各階段設定／實際模型（含降級狀態），讓前端與 demo 看得到
         return info
 
+    @api.post("/login")
+    async def login(body: LoginBody):
+        """帳密來自 AUTH_USERNAME／AUTH_PASSWORD；沒設就回 auth_required=false，前端不用登入。"""
+        if not auth.enabled():
+            return {"auth_required": False, "token": None}
+        if not auth.check_credentials(body.username, body.password):
+            raise HTTPException(401, "帳號或密碼錯誤")
+        token, expires = auth.issue_token(body.username.strip())
+        return {"auth_required": True, "token": token, "expires_at": expires, "username": body.username.strip()}
+
+    @api.get("/me")
+    async def me(user: str | None = auth.AuthDep):
+        return {"auth_required": auth.enabled(), "username": user}
+
     @api.post("/cases", status_code=202)
-    async def create_case(background: BackgroundTasks,
+    async def create_case(background: BackgroundTasks, _user: str | None = auth.AuthDep,
                           petition_image: UploadFile = File(..., description="訴願書影像"),
                           disposition_image: UploadFile = File(..., description="原處分書影像"),
                           service_date: str | None = Form(None, description="送達日期（選填，YYYY-MM-DD 或民國 YYY-MM-DD），覆蓋 S2.served_date")):
@@ -93,11 +113,11 @@ def create_app(adapters: AdapterSet | None = None, store: CaseStore | None = Non
         return {"case_id": case.case_id}
 
     @api.get("/cases")
-    async def list_cases():
+    async def list_cases(_user: str | None = auth.AuthDep):
         return {"cases": [c.to_summary() for c in store.list()]}
 
     @api.get("/cases/{case_id}")
-    async def get_case(case_id: str):
+    async def get_case(case_id: str, _user: str | None = auth.AuthDep):
         case = store.get(case_id)
         if case is None:
             raise HTTPException(404, f"case {case_id} not found")

@@ -16,7 +16,7 @@ data/       statutes.json（全量 2,214 條）、precedents.json、petitions.js
 ## 一鍵啟動（Docker Compose）
 
 ```bash
-cp .env.example .env          # stub 模式留預設即可；要接 Bedrock 再填 ADAPTER=bedrock 與 AWS 憑證
+cp .env.example .env          # stub 模式留預設即可；要接 Bedrock 再填 ADAPTER=bedrock 與 AWS 憑證；要登入頁再填 AUTH_USERNAME／AUTH_PASSWORD
 docker compose up --build     # 前端 http://localhost:8080（/api 由 nginx 反向代理到 backend）；後端另外開 8000 供 curl
 ```
 
@@ -35,7 +35,7 @@ uvicorn app.main:app --reload --port 8000
 cd f2e && npm install && cp .env.example .env && npm run dev
 ```
 
-瀏覽器開 http://localhost:5173 → 新建案件 → 選兩張圖 → 「開始分析（送後端）」。
+瀏覽器開 http://localhost:5173 →（有設帳密則先登入）→ 新建案件 → 「一鍵 Demo（載入並分析）」或自己選兩張圖 → 「開始分析」。
 後端掛掉時按「載入示範案件」看本機 fixture（保底）。
 
 - 後端說明、API、規則引擎、Bedrock 模式與 Knowledge Base：[backend/README.md](backend/README.md)

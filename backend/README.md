@@ -27,6 +27,8 @@ python -m app.fixture                                 # 用 stub pipeline 重產
 
 | 方法 | 路徑 | 說明 |
 |---|---|---|
+| POST | `/api/login` | body `{username, password}` → `{auth_required, token, expires_at, username}`；帳密來自 `AUTH_USERNAME`／`AUTH_PASSWORD`，沒設則回 `auth_required:false`（不用登入）。錯誤 401 |
+| GET | `/api/me` | 目前登入者（需 Bearer token；驗證關閉時 username 為 null） |
 | GET | `/api/health` | `{status:"ok", adapter_mode:"stub"\|"bedrock", models?:{…}}`（bedrock 模式多回各階段模型與降級狀態） |
 | POST | `/api/cases` | multipart `petition_image`、`disposition_image`（JPG/PNG/WebP，各 ≤ 10 MB）＋選填 `service_date`（前端「送達日期」欄；YYYY-MM-DD 或民國 YYY-MM-DD，解析失敗 422）→ **202** `{case_id}`；pipeline 在 BackgroundTasks 跑 |
 | GET | `/api/cases/{case_id}` | 附錄 A envelope：`{case_id, status, current_stage, adapter_mode, created_at, updated_at, stages{S1,S2,S2_5,S3,S4,S5:{status,data,error,elapsed_ms}}, error}`；不存在 404 |
@@ -100,6 +102,16 @@ tests/
 - Docker：`backend/Dockerfile`（context 是 repo 根目錄，因為要 `data/`）；`docker compose up --build` 見根目錄 README。
 - 沒有取消端點（附錄 A）；前端「停止」只停輪詢。
 - 法條／判解摘要不是手打的：`tools/extract_*.py` 從主辦方 PDF 切出來，存 `data/statutes.json`、`data/precedents.json`（含 `source`）。`data/petitions.jsonl` 是 101 件歷史決定書結構化資料（從 hackathon 目錄同步）。
+
+## 登入（`app/auth.py`，環境變數設定）
+
+- `AUTH_USERNAME`＋`AUTH_PASSWORD` **都設**才啟用：前端會先出現登入頁，`/api/cases*` 要帶 `Authorization: Bearer <token>`（`POST /api/login` 取得）；`/api/health` 不用登入並回 `auth_required`。任一沒設＝不驗證，本機開發／stub demo 直接用。
+- token 是 HMAC 簽章的 `username:expires`（無狀態）；`AUTH_SECRET` 沒設就每次啟動隨機（重啟後要重新登入），`AUTH_TOKEN_TTL_S` 預設 12 小時。單一帳號、`hmac.compare_digest` 比對；POC 規模夠用。
+- 前端把 token 放 localStorage，任何 401 會自動清掉並切回登入頁；側欄有登出。
+
+## Demo 文件（一鍵測試）
+
+前端「文件上傳」有兩顆按鈕：**載入 Demo 文件**（把 `f2e/public/demo/petition.jpg`、`disposition.jpg` 填進兩個上傳格）與 **一鍵 Demo（載入並分析）**。這兩張是 `data/poc/01`／`02` 模擬文件渲染成的 JPG（人名帳號皆虛構、稍微歪斜模擬拍照），bedrock 模式實測全鏈約 105–120 s、S5 28–29/31。
 
 ## Bedrock 模式（四段全通）
 

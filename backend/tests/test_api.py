@@ -20,7 +20,7 @@ def files(a=JPG, b=JPG, a_type="image/jpeg", b_type="image/jpeg"):
 
 
 def test_health(client):
-    assert client.get("/api/health").json() == {"status": "ok", "adapter_mode": "stub"}
+    assert client.get("/api/health").json() == {"status": "ok", "adapter_mode": "stub", "auth_required": False}
 
 
 def test_create_and_get_case(client):
