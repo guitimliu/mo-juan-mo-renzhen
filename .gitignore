@@ -1,0 +1,21 @@
+# 憑證與本機設定（切勿提交）
+.env
+.env.*
+!.env.example
+
+# Python 虛擬環境與快取
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Node
+node_modules/
+
+# 除錯／暫存
+*.log
+
+# 作業系統與編輯器
+.DS_Store
+.vscode/
+.idea/
