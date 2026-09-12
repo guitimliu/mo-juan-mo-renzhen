@@ -30,3 +30,6 @@ __pycache__/
 *.njsproj
 *.sln
 *.sw?
+
+# Local export verification artifacts
+/tmp/
