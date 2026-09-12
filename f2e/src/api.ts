@@ -1,7 +1,8 @@
 // 後端 API 客戶端。契約：data/poc/03_介面規格.md（S0–S5 ＋ 附錄 A/B/C）。
 // base URL 讀 VITE_API_BASE_URL（.env.example），預設 http://localhost:8000；路徑前綴 /api。
 
-export const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/+$/, '')
+// 空字串＝同源（Docker 內由 nginx 把 /api 反向代理到後端）；未設定才退回本機 8000
+export const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/+$/, '')
 export const POLL_INTERVAL_MS = 1500   // 附錄 A：輪詢 1500 ms
 export const POLL_TIMEOUT_MS = 120_000 // 附錄 A：建議 120 s 逾時
 export const REQUEST_TIMEOUT_MS = 30_000 // 單次 fetch 逾時（後端掛住時不會永遠等）
@@ -95,10 +96,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const getHealth = () => request<Health>('/api/health')
 
-export function createCase(petition: File, disposition: File) {
+export function createCase(petition: File, disposition: File, serviceDate?: string) {
   const body = new FormData()
   body.append('petition_image', petition)
   body.append('disposition_image', disposition)
+  if (serviceDate) body.append('service_date', serviceDate)   // 選填：承辦人填的送達日（西元 YYYY-MM-DD），後端覆蓋 S2.served_date
   return request<{ case_id: string }>('/api/cases', { method: 'POST', body })
 }
 

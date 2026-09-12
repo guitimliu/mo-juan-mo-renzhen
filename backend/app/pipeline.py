@@ -60,7 +60,18 @@ async def run_case(case_id: str, store: CaseStore, adapters: AdapterSet, delay_s
         return fn(*args)
 
     await step("S1", (), lambda: adapters.ocr.run(case_id, case.images))
-    await step("S2", ("S1",), lambda: adapters.extract.run(ctx["S1"]))
+    async def extract_with_overrides():
+        s2 = await adapters.extract.run(ctx["S1"])
+        # 前端「送達日期（選填）」：承辦人依送達證明填的日子比 OCR／LLM 擷取可靠，直接覆蓋
+        if case.service_date and isinstance(s2, dict):
+            d = rules.parse_roc_date(case.service_date)
+            if d is None:
+                raise ValueError(f"service_date 無法解析：{case.service_date!r}（接受 YYYY-MM-DD 或民國 YYY-MM-DD）")
+            s2["served_date"] = rules.to_roc(d)
+            s2["served_date_source"] = "user"
+        return s2
+
+    await step("S2", ("S1",), extract_with_overrides)
     await step("S2_5", ("S2",), lambda: as_async(rules.check_procedure, ctx["S2"], ctx["S1"].get("disposition_text")))
     await step("S3", ("S2",), lambda: adapters.retrieval.run(ctx["S2"]))
     await step("S4", ("S2", "S2_5", "S3"), lambda: adapters.generate.run(ctx["S2"], ctx["S2_5"], ctx["S3"]))

@@ -21,6 +21,10 @@ npm run preview
 
 `build` 會先執行 TypeScript 檢查，再產生 `dist/`。
 
+Docker：`f2e/Dockerfile` 多階段建 `dist/` 後交給 nginx（`nginx.conf` 把 `/api/` 代理到 `backend:8000`）；build arg `VITE_API_BASE_URL` 留空＝同源。整套用根目錄 `docker compose up --build`。
+
+「送達日期（選填）」欄位會以 `service_date` 一起 POST 給後端，覆蓋 OCR 擷取的送達日（程序檢核以此計算 30 日）。
+
 ## E 項目範圍
 
 依據 [訴願 POC 作戰計畫](https://claude.ai/code/artifact/e1c76357-27db-4099-ad20-eb2265ad2296?via=auto_preview)：

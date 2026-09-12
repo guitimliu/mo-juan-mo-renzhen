@@ -35,6 +35,7 @@ class Case:
     case_id: str
     adapter_mode: str
     images: list[UploadedImage] = field(default_factory=list, repr=False)
+    service_date: str | None = None          # 承辦人在前端填的送達日（選填），覆蓋 S2.served_date
     status: str = "queued"
     current_stage: str | None = None
     error: str | None = None
@@ -70,9 +71,9 @@ class CaseStore:
         self._cases: dict[str, Case] = {}
         self._seq = 0
 
-    def create(self, adapter_mode: str, images: list[UploadedImage]) -> Case:
+    def create(self, adapter_mode: str, images: list[UploadedImage], service_date: str | None = None) -> Case:
         self._seq += 1
-        case = Case(case_id=f"poc-{self._seq:03d}", adapter_mode=adapter_mode, images=images)
+        case = Case(case_id=f"poc-{self._seq:03d}", adapter_mode=adapter_mode, images=images, service_date=service_date)
         self._cases[case.case_id] = case
         return case
 

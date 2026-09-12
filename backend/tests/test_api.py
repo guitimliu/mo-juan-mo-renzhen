@@ -80,3 +80,22 @@ def test_missing_data_dir_fails_fast(monkeypatch, tmp_path):
 def test_timestamp_has_fixed_plus8_offset():
     from app.store import now_iso
     assert now_iso().endswith("+08:00")
+
+
+def test_service_date_overrides_served_date(client):
+    r = client.post("/api/cases", files=files(), data={"service_date": "2024-09-20"})
+    assert r.status_code == 202
+    env = client.get(f"/api/cases/{r.json()['case_id']}").json()
+    s2 = env["stages"]["S2"]["data"]
+    assert s2["served_date"] == "113-09-20" and s2["served_date_source"] == "user"
+    assert env["stages"]["S2_5"]["data"]["checks"][0]["served"] == "113-09-20"
+
+
+def test_service_date_invalid_422(client):
+    assert client.post("/api/cases", files=files(), data={"service_date": "not-a-date"}).status_code == 422
+
+
+def test_service_date_blank_ignored(client):
+    r = client.post("/api/cases", files=files(), data={"service_date": "  "})
+    env = client.get(f"/api/cases/{r.json()['case_id']}").json()
+    assert env["stages"]["S2"]["data"]["served_date"] == "113-09-02" and "served_date_source" not in env["stages"]["S2"]["data"]

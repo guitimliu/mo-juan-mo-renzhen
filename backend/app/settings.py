@@ -6,7 +6,7 @@ import pathlib
 BACKEND_DIR = pathlib.Path(__file__).resolve().parents[1]
 REPO_DIR = BACKEND_DIR.parent
 
-# stub | bedrock；bedrock 的 OCR、Extract、Retrieval 已實作，Generate 仍為空殼（跑到 S4 會 NotImplementedError）
+# stub | bedrock；bedrock 四段（OCR、Extract、Retrieval、Generate）都已實作，需 AWS 憑證（AWS_PROFILE=hackathon）
 ADAPTER = os.environ.get("ADAPTER", "stub").strip().lower()
 
 # 工作包（唯一真相來源是 hackathon/data/poc，repo 根目錄 data/poc 為同步副本）

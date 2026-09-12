@@ -1,0 +1,29 @@
+# 一鍵起前後端：docker compose up --build → http://localhost:8080（前端；/api 由 nginx 代理到 backend）
+# 後端預設 stub 模式，不需要 AWS。要用 Bedrock：cp .env.example .env，填 ADAPTER=bedrock 與 AWS 憑證（見 backend/README.md）。
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - path: .env               # AWS_ACCESS_KEY_ID／AWS_SECRET_ACCESS_KEY／AWS_SESSION_TOKEN／BEDROCK_REGION… 有填才會進容器
+        required: false
+    environment:
+      ADAPTER: ${ADAPTER:-stub}
+      STUB_STAGE_DELAY_S: ${STUB_STAGE_DELAY_S:-1.5}
+      CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-8080},http://localhost:5173
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"   # 直接 curl 後端用；前端不靠這個
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./f2e
+      args:
+        VITE_API_BASE_URL: ""        # 空字串＝同源呼叫 /api（nginx 反向代理），不需 CORS
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

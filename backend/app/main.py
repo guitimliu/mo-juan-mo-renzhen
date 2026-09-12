@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, FastAPI, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import pipeline, settings
+from . import pipeline, rules, settings
 from .adapters import bedrock, stub
 from .adapters.base import AdapterSet, UploadedImage
 from .store import CaseStore
@@ -78,10 +78,14 @@ def create_app(adapters: AdapterSet | None = None, store: CaseStore | None = Non
     @api.post("/cases", status_code=202)
     async def create_case(background: BackgroundTasks,
                           petition_image: UploadFile = File(..., description="訴願書影像"),
-                          disposition_image: UploadFile = File(..., description="原處分書影像")):
+                          disposition_image: UploadFile = File(..., description="原處分書影像"),
+                          service_date: str | None = Form(None, description="送達日期（選填，YYYY-MM-DD 或民國 YYY-MM-DD），覆蓋 S2.served_date")):
         images = [await read_upload("petition_image", petition_image),
                   await read_upload("disposition_image", disposition_image)]
-        case = store.create(adapters.mode, images)
+        service_date = (service_date or "").strip() or None
+        if service_date and rules.parse_roc_date(service_date) is None:
+            raise HTTPException(422, f"service_date 無法解析：{service_date!r}（接受 YYYY-MM-DD 或民國 YYY-MM-DD）")
+        case = store.create(adapters.mode, images, service_date)
         background.add_task(pipeline.run_case, case.case_id, store, adapters, delay)
         return {"case_id": case.case_id}
 

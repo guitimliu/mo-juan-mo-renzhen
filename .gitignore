@@ -7,3 +7,9 @@ Thumbs.db
 data/kb_corpus/
 __pycache__/
 *.pyc
+
+# Local video exports
+*.mp4
+
+# Local video production project
+/videos/

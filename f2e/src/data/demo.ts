@@ -1,6 +1,8 @@
 import pipeline from './pipeline.json'
 import type { CaseEnvelope, CheckItem, S1, S2, S25, S3, S4, S5 } from '../api'
 
+// E：正本比對檢核是開發用檢核頁，demo 時隱藏（第 6 步）；後端仍會算 S5，設 true 就看得到
+export const showDeveloperChecks = false
 export const steps = [
   { title: '文件上傳', short: '上傳', icon: 'upload', description: '匯入案件文件，開始審查流程' },
   { title: 'OCR 辨識', short: 'OCR 對照', icon: 'scan', description: '對照原始文件與辨識文字' },
@@ -8,7 +10,7 @@ export const steps = [
   { title: '法源檢索', short: '法源檢索', icon: 'search', description: '檢視法條、判解、立法理由與相似訴願案件' },
   { title: '決定書草稿', short: '草稿生成', icon: 'edit', description: '逐段核對草稿內容，讓每一份引用都有依據' },
   { title: '正本比對檢核', short: '正本比對', icon: 'list', description: '對照團隊標準答案，檢查段落、引用與五個論理要點' },
-]
+].filter((_, index) => showDeveloperChecks || index < 5)
 
 // 六階段資料；任一階段尚未完成時為 null／undefined，畫面顯示空白而不是假資料。
 export interface StageData { s1?: S1 | null; s2?: S2 | null; procedure?: S25 | null; s3?: S3 | null; s4?: S4 | null; s5?: S5 | null }
@@ -39,10 +41,10 @@ export function buildView(d: StageData) {
   const validation = d.s5?.summary ?? { sections_present: {}, citation_grounded: 0, citation_total: 0, gold_citations_recalled: [], gold_citations_missed: [], holding_match: false }
   const totals = { passed: report.checks.filter(c => c.pass).length, total: report.checks.length, failed: report.checks.filter(c => !c.pass).length }
   const sources = [
-    ...s3.statutes.map((s, i) => ({ id: `statutes[${i}]`, type: '法條', title: s.law, subtitle: `第 ${s.article} 條 · 版本 ${s.version_date ?? '—'}`, content: s.text, tag: '法條查表' })),
-    ...s3.precedents.map((s, i) => ({ id: `precedents[${i}]`, type: '判解', title: s.id, subtitle: `${s.topic ?? ''} · 分數 ${s.score ?? '—'}`, content: s.excerpt, tag: '判解' })),
+    ...s3.statutes.map((s, i) => ({ id: `statutes[${i}]`, type: '法條', title: s.law, subtitle: `第 ${s.article} 條 · 版本 ${s.version_date ?? '—'}`, content: s.text, tag: '法條' })),
+    ...s3.precedents.map((s, i) => ({ id: `precedents[${i}]`, type: '判解', title: s.id, subtitle: `${s.topic ?? ''} · 相關度 ${s.score ?? '—'}`, content: s.excerpt, tag: '判解' })),
     ...s3.interpretations.map((s, i) => ({ id: `interpretations[${i}]`, type: '立法理由', title: s.id, subtitle: '立法理由', content: s.excerpt, tag: '立法理由' })),
-    ...s3.similar_cases.map((s, i) => ({ id: `similar_cases[${i}]`, type: '相似案', title: `${s.id}${s.case_type ? ' ' + s.case_type : ''}`, subtitle: `${s.result} · 分數 ${s.score ?? '—'}`, content: s.why_similar + (s.holding ? `　主文：${s.holding}` : ''), tag: s.result })),
+    ...s3.similar_cases.map((s, i) => ({ id: `similar_cases[${i}]`, type: '相似案', title: `${s.id}${s.case_type ? ' ' + s.case_type : ''}`, subtitle: `${s.result} · 相關度 ${s.score ?? '—'}`, content: s.why_similar + (s.holding ? `　主文：${s.holding}` : ''), tag: s.result })),
   ]
   // 附錄 B：citations 帶 (section, index)，依此掛到段落；每筆 citation 一顆 chip（同 text+source 才合併），數字與 S5 的 citation_total 對得上
   const cites = (section: string, index: number) => {

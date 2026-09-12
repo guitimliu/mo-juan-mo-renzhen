@@ -12,7 +12,18 @@ data/poc/   工作包（唯一真相來源同步自 hackathon/data/poc；03_介�
 data/       statutes.json、precedents.json（從主辦方 PDF 切出）、petitions.jsonl（101 件歷史決定書）
 ```
 
-## 啟動（兩個終端）
+## 一鍵啟動（Docker Compose）
+
+```bash
+cp .env.example .env          # stub 模式留預設即可；要接 Bedrock 再填 ADAPTER=bedrock 與 AWS 憑證
+docker compose up --build     # 前端 http://localhost:8080（/api 由 nginx 反向代理到 backend）；後端另外開 8000 供 curl
+```
+
+- `backend/Dockerfile`：python:3.12-slim + uvicorn，把 `data/` 一起包進去（`DATA_DIR=/app/data`），有 healthcheck。
+- `f2e/Dockerfile`：node 22 建 `dist/` → nginx（`f2e/nginx.conf`：`/api/` → `backend:8000`，上傳上限 25 MB）。前端 build 時 `VITE_API_BASE_URL` 留空＝同源呼叫。
+- 埠被占用就在 `.env` 改 `FRONTEND_PORT`／`BACKEND_PORT`。
+
+## 本機開發（兩個終端）
 
 ```bash
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt

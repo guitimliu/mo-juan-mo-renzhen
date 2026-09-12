@@ -21,7 +21,9 @@
 
 ## 前端實作位置
 
-- `src/api.ts`：`getHealth()`、`createCase(petition, disposition)`、`getCase(id)`；型別 `CaseEnvelope`、S1–S5；base URL 讀 `VITE_API_BASE_URL`（預設 `http://localhost:8000`）。
+- `src/api.ts`：`getHealth()`、`createCase(petition, disposition, serviceDate?)`（選填 `service_date` 表單欄位）、`getCase(id)`；型別 `CaseEnvelope`、S1–S5；base URL 讀 `VITE_API_BASE_URL`（未設定＝`http://localhost:8000`；空字串＝同源，Docker/nginx 用）。
+- `src/exportDraft.ts`／`draftPdf.ts`／`draftDocx.ts`：匯出吃目前 view 的草稿與表頭（案號＝case_id），不再固定 113-16。
+- 第 6 步「正本比對檢核」由 `showDeveloperChecks`（demo.ts）控制顯示；後端仍會算 S5，進度條會等它完成。
 - `src/data/demo.ts`：`stagesFrom(envelope | 舊 fixture)` → `buildView()`；任一階段未完成就顯示空白，不補假資料。
 - `src/App.vue`：`runDemo()` = POST → 每 1.5 s GET → `progressFrom(env)` 推進 `ProcessingStatus` → done 時 `ready`。連不上後端或後端回 error 時顯示錯誤（`ProcessingStatus` 的 `error` prop），**不會退回 fixture**。頂部標籤依 `GET /api/health` 的 `adapter_mode` 顯示「示範資料（stub）」。
 - 「載入示範案件」仍走本機 fixture（`src/data/pipeline.json`），是後端掛掉時的保底。
