@@ -25,7 +25,7 @@ import re
 import time
 from functools import lru_cache
 
-from .. import rules, settings
+from .. import events, rules, settings
 from . import stub as _stub   # 只借讀檔工具（statutes_table／petitions），不用它的假資料
 from .base import UploadedImage
 
@@ -116,17 +116,40 @@ def _is_model_unavailable(code: str, message: str) -> bool:
         or (code in ("ResourceNotFoundException", "ValidationException") and "model" in msg)
 
 
+def _converse_stream_collect(client, kwargs: dict, on_delta) -> tuple[str, dict]:
+    """在 thread 裡跑 converse_stream，逐段回呼 on_delta（thread-safe 版），最後回 (全文, usage)。"""
+    resp = client.converse_stream(**kwargs)
+    parts: list[str] = []
+    usage: dict = {}
+    for ev in resp["stream"]:
+        delta = (ev.get("contentBlockDelta") or {}).get("delta") or {}
+        if "text" in delta:
+            parts.append(delta["text"])
+            if on_delta:
+                on_delta(delta["text"])
+        if "metadata" in ev:
+            usage = ev["metadata"].get("usage") or {}
+    return "".join(parts), usage
+
+
 async def converse(client, model_id: str, messages: list[dict], system: str | None = None,
-                   max_tokens: int = 4096, temperature: float = 0.0) -> str:
-    """呼叫 Converse API，回第一段文字。自帶 1 RPS 限流 + Throttling 指數退避 + 模型不可用時降級。"""
+                   max_tokens: int = 4096, temperature: float = 0.0, stream_stage: str | None = None) -> str:
+    """呼叫 Converse API，回第一段文字。自帶 1 RPS 限流 + Throttling 指數退避 + 模型不可用時降級。
+    stream_stage 有給且 client 支援 converse_stream 且有 WebSocket 訂閱者時，改走串流並把片段推給前端（events.delta）。"""
     model_id = resolve_model(model_id)
     kwargs = {"modelId": model_id, "messages": messages,
               "inferenceConfig": {"maxTokens": max_tokens, "temperature": temperature}}
     if system:
         kwargs["system"] = [{"text": system}]
+    on_delta = events.threadsafe_emitter(asyncio.get_running_loop(), stream_stage) if stream_stage else None
+    use_stream = on_delta is not None and hasattr(client, "converse_stream")
     for attempt in range(MAX_RETRIES + 1):
         await limiter.wait()
         try:
+            if use_stream:
+                text, usage = await asyncio.to_thread(_converse_stream_collect, client, kwargs, on_delta)
+                log.info("bedrock(stream) %s in=%s out=%s", model_id, usage.get("inputTokens"), usage.get("outputTokens"))
+                return text
             resp = await asyncio.to_thread(client.converse, **kwargs)
             usage = resp.get("usage", {})
             log.info("bedrock %s in=%s out=%s", model_id, usage.get("inputTokens"), usage.get("outputTokens"))
@@ -227,8 +250,10 @@ class BedrockOCR:
                 results[field] = {"text": "", "low_confidence": [], "note": ""}
                 notes.append(f"{label}：未上傳")
                 continue
+            events.progress("S1", f"正在辨識{label}（{len(by_field[field])} 頁）…")
             r = await self.ocr_field(label, by_field[field])
             results[field] = r
+            events.progress("S1", f"{label}辨識完成（{len(r['text'])} 字）")
             parts = [f"{label}：{len(by_field[field])} 頁"]
             if r["note"]:
                 parts.append(r["note"])
@@ -344,6 +369,7 @@ class BedrockExtract:
                 "\n\n=== 原處分書（OCR 全文）===\n" + (s1.get("disposition_text") or "（未上傳）") +
                 "\n\n=== OCR 備註 ===\n" + (s1.get("ocr_confidence_note") or "") +
                 "\n\n請依系統指示輸出 S2 JSON。")
+        events.progress("S2", "模型正在擷取案件摘要（訴願人、處分、日期、主張、爭點）…")
         raw = await converse(self.client, self.model_id, [{"role": "user", "content": [{"text": user}]}],
                              system=EXTRACT_SYSTEM, max_tokens=2048)
         data = extract_json(raw)
@@ -583,8 +609,11 @@ class BedrockRetrieval:
         query = build_query(s2)
         own = own_case_ids(s2)
         prec_chunks = await retrieve(self.agent_client, self.kb_id, query, "precedent", k=8)
+        events.progress("S3", f"判解檢索完成（{len(prec_chunks)} 段）")
         interp_chunks = await retrieve(self.agent_client, self.kb_id, query, "interpretation", k=6)
+        events.progress("S3", f"函釋檢索完成（{len(interp_chunks)} 段）")
         dec_chunks = await retrieve(self.agent_client, self.kb_id, query, "decision", k=12)
+        events.progress("S3", f"歷史決定書檢索完成（{len(dec_chunks)} 段），模型篩選中…")
 
         precedents = [precedent_entry(d) for d in group_by_doc(prec_chunks)[:3]]
         interpretations = [interpretation_entry(d) for d in group_by_doc(interp_chunks)[:3]]
@@ -693,6 +722,32 @@ def _disposition_ref(s2: dict) -> str | None:
     return f"{d.year - 1911}年{d.month}月{d.day}日{disp['doc_no']}" if d else disp["doc_no"]
 
 
+PROCEDURE_STATUTES = {            # S2.5 規則 → 決定書會引用的條文（不受理／撤銷版理由一）
+    "訴願法14條 30日": [("訴願法", "14"), ("訴願法", "77")],
+    "訴願法77(3) 當事人適格": [("訴願法", "18"), ("訴願法", "77")],
+    "訴願法77(8) 行政處分": [("行政程序法", "92"), ("訴願法", "77")],
+    "行政程序法96條 處分書應記載事項": [("行政程序法", "96"), ("行政程序法", "114")],
+}
+
+
+def add_procedure_statutes(s3: dict, s2_5: dict) -> list[str]:
+    """S3 在 S2.5 之後才跑但拿不到它，所以程序法條在這裡補：只補「沒過」的規則對應條文，精確查 statutes.json，
+    直接 append 進 s3["statutes"]（同一個 dict＝envelope 的 S3），citations 的 statutes[i] 才對得上。回傳補了哪些。"""
+    table = {(r["law"], r["article"]): r for r in _stub.statutes_table()}
+    have = {(x["law"], x["article"]) for x in s3.get("statutes") or []}
+    added = []
+    failed = [c["rule"] for c in (s2_5 or {}).get("checks") or [] if not c.get("pass")]
+    for rule in failed:
+        for ref in PROCEDURE_STATUTES.get(rule, []):
+            if ref in table and ref not in have:
+                row = table[ref]
+                s3.setdefault("statutes", []).append({**{k: row[k] for k in ("law", "article", "text", "version_date", "source")},
+                                                      "added_by": f"S2.5 {rule}"})
+                have.add(ref)
+                added.append(f"{ref[0]}第{ref[1]}條")
+    return added
+
+
 class BedrockGenerate:
     def __init__(self, client=None, model_id: str = GENERATE_MODEL_ID):
         self._client = client
@@ -704,6 +759,9 @@ class BedrockGenerate:
 
     async def run(self, s2: dict, s2_5: dict, s3: dict) -> dict:
         decision = decide_outcome(s2_5)
+        added = add_procedure_statutes(s3, s2_5)
+        if added:
+            log.info("依 S2.5 補入程序法條：%s", "、".join(added))
         user = "\n\n".join([
             f"## 本件裁決（已由程序檢核規則決定，請直接採用，不得改變）\n{json.dumps(decision, ensure_ascii=False)}\n"
             f"→ 請用模板的「{decision['version']}」骨架；主文必須是該版本列出的句子之一。"
@@ -719,8 +777,9 @@ class BedrockGenerate:
             "- 理由「三、」逐一回應 S2.appellant_claims 每一點；主張受騙／不知情時，要分別討論：是否為但書「正當理由」、是否對構成要件毫無認識（依證據判斷有無警覺）、縱非故意是否有過失（行政罰法第7條第1項，若在檢索結果內）。\n"
             "只輸出 S4 JSON（header, holding, facts, reasons[], instruction, citations[], gaps[]），不要 markdown 圍欄。",
         ])
+        events.progress("S4", f"模型依「{decision['version']}」骨架生成中…")
         raw = await converse(self.client, self.model_id, [{"role": "user", "content": [{"text": user}]}],
-                             system=generate_system_prompt(), max_tokens=GENERATE_MAX_TOKENS)
+                             system=generate_system_prompt(), max_tokens=GENERATE_MAX_TOKENS, stream_stage="S4")
         draft = extract_json(raw)
         if draft is None:
             raise ValueError(f"Generate 模型未回 JSON：{raw[:200]!r}")

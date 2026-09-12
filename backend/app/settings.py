@@ -9,6 +9,14 @@ REPO_DIR = BACKEND_DIR.parent
 # stub | bedrock；bedrock 四段（OCR、Extract、Retrieval、Generate）都已實作，需 AWS 憑證（AWS_PROFILE=hackathon）
 ADAPTER = os.environ.get("ADAPTER", "stub").strip().lower()
 
+# 個資前處理（取代法，app/pii.py）：auto＝bedrock 模式開、stub 關；1／0 強制
+PII_MASK = os.environ.get("PII_MASK", "auto").strip().lower()
+
+
+def pii_enabled(adapter_mode: str) -> bool:
+    return PII_MASK in ("1", "true", "on") or (PII_MASK == "auto" and adapter_mode == "bedrock")
+
+
 # 工作包（唯一真相來源是 hackathon/data/poc，repo 根目錄 data/poc 為同步副本）
 DATA_DIR = pathlib.Path(os.environ.get("DATA_DIR", REPO_DIR / "data")).resolve()
 POC_DIR = DATA_DIR / "poc"

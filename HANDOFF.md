@@ -2,7 +2,7 @@
 
 更新：2026-09-12 16:10。上一個 session 完成資料盤點、案例選定、五人分工、A 角色工作包；**本 session（hackathon-c8）完成 `backend/`（stub 管線）並把 E 的前端接上真 API；平行 session（aws-test-95）同時把 `bedrock.py` 四段（OCR／Extract／Retrieval／Generate）接上 AWS（KB `ZOMMOWFOT2`）**。
 團隊 repo：https://github.com/guitimliu/mo-juan-mo-renzhen，分支 **`backend`**（已 push；PR 待貴哥合併到 main）。本機 clone 在 `mo-juan-mo-renzhen/`。
-**現況：帳密登入（`AUTH_USERNAME`／`AUTH_PASSWORD`，不設＝免登入）與前端「一鍵 Demo」已加；模型預設 Sonnet 5、可用環境變數設定、帳戶不可用自動降級 4.6；`ADAPTER=bedrock` 端到端已通，Generate 實測 S5 29/31（剩 2 分是正本才有的 LINE 對話內容，輸入文件沒有）；`docker compose up --build` 可一鍵起前後端（§2.5）。** 已合併 E 的前端 v2（main）：送達日期欄位、PDF／Word 匯出、隱藏第 6 步。
+**現況：WebSocket 即時進度（子步驟＋S4 草稿串流，輪詢改備援）已加；個資前處理（取代法，S1 後姓名→甲○○、證號／電話／地址／生日遮罩，S4 還原姓名，對照表不出本機）已加；帳密登入（`AUTH_USERNAME`／`AUTH_PASSWORD`，不設＝免登入）與前端「一鍵 Demo」已加；模型預設 Sonnet 5、可用環境變數設定、帳戶不可用自動降級 4.6；`ADAPTER=bedrock` 端到端已通，Generate 實測 S5 29/31（剩 2 分是正本才有的 LINE 對話內容，輸入文件沒有）；`docker compose up --build` 可一鍵起前後端（§2.5）。** 已合併 E 的前端 v2（main）：送達日期欄位、PDF／Word 匯出、隱藏第 6 步。
 
 ---
 

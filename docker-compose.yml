@@ -1,4 +1,4 @@
-# 一鍵起前後端：docker compose up --build → http://localhost:8080（前端；/api 由 nginx 代理到 backend）
+# 一鍵起前後端＋簡報：docker compose up --build → http://localhost:8080（前端；/api → backend、/slides/ → slides 都由 nginx 代理）
 # 後端預設 stub 模式，不需要 AWS。要用 Bedrock：cp .env.example .env，填 ADAPTER=bedrock 與 AWS 憑證（見 backend/README.md）。
 services:
   backend:
@@ -26,4 +26,11 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      slides:
+        condition: service_started
+    restart: unless-stopped
+
+  slides:
+    build:
+      context: ./slides           # Slidev build --base /slides/ → nginx；前端 nginx 反向代理 /slides/ 過來
     restart: unless-stopped

@@ -100,7 +100,7 @@ def test_s5_summary_follows_appendix_c(store, adapters, images):
 
 def test_envelope_shape(store, adapters, images):
     env = run(store, adapters, images).to_envelope()
-    assert set(env) == {"case_id", "status", "current_stage", "adapter_mode", "created_at", "updated_at", "stages", "error"}
+    assert set(env) == {"case_id", "status", "current_stage", "adapter_mode", "created_at", "updated_at", "stages", "pii", "error"}
     assert list(env["stages"]) == list(STAGES) and env["adapter_mode"] == "stub"
     for st in env["stages"].values():
         assert set(st) == {"status", "data", "error", "elapsed_ms"} and isinstance(st["elapsed_ms"], int)
@@ -439,3 +439,17 @@ def test_health_reports_models_in_bedrock_mode(monkeypatch):
     assert h["adapter_mode"] == "bedrock" and h["models"]["default"] == bedrock.MODEL_ID
     assert set(h["models"]["stages"]) == {"ocr", "extract", "retrieval", "generate"}
     assert "models" not in TestClient(create_app(adapters=stub.make_adapters(), delay_s=0)).get("/api/health").json()
+
+
+def test_generate_adds_procedure_statutes_for_failed_checks():
+    from app.adapters import bedrock
+    s3 = {"statutes": [{"law": "洗錢防制法", "article": "22", "text": "x", "version_date": None, "source": ""}], "precedents": [], "interpretations": [], "similar_cases": []}
+    s2_5 = {"admissible": False, "checks": [{"rule": "訴願法14條 30日", "pass": False, "category": "程序", "needs_review": False, "note": "逾期"},
+                                            {"rule": "訴願法77(3) 當事人適格", "pass": True}], "defect_flags": []}
+    added = bedrock.add_procedure_statutes(s3, s2_5)
+    assert added == ["訴願法第14條", "訴願法第77條"]
+    assert [(x["law"], x["article"]) for x in s3["statutes"]] == [("洗錢防制法", "22"), ("訴願法", "14"), ("訴願法", "77")]
+    assert s3["statutes"][1]["text"].startswith("訴願之提起") and s3["statutes"][1]["added_by"].startswith("S2.5")
+    assert bedrock.add_procedure_statutes(s3, s2_5) == []                      # 冪等
+    s3b = {"statutes": []}
+    assert bedrock.add_procedure_statutes(s3b, {"checks": [{"rule": "行政程序法96條 處分書應記載事項", "pass": False}]}) == ["行政程序法第96條", "行政程序法第114條"]

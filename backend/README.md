@@ -29,6 +29,7 @@ python -m app.fixture                                 # 用 stub pipeline 重產
 |---|---|---|
 | POST | `/api/login` | body `{username, password}` → `{auth_required, token, expires_at, username}`；帳密來自 `AUTH_USERNAME`／`AUTH_PASSWORD`，沒設則回 `auth_required:false`（不用登入）。錯誤 401 |
 | GET | `/api/me` | 目前登入者（需 Bearer token；驗證關閉時 username 為 null） |
+| WS | `/api/cases/{case_id}/ws` | 即時進度（驗證開啟時 `?token=`）：連上先送 `{type:"envelope"}`，之後每個階段變化再送；`{type:"progress", stage, message}` 子步驟（OCR 每份文件、KB 三次檢索、生成開始）；`{type:"delta", stage:"S4", text}` 生成草稿串流（Bedrock `converse_stream`）；20 s 無事件送 `{type:"ping"}`；done/error 後送最後一次 envelope（`final:true`）並關閉 |
 | GET | `/api/health` | `{status:"ok", adapter_mode:"stub"\|"bedrock", models?:{…}}`（bedrock 模式多回各階段模型與降級狀態） |
 | POST | `/api/cases` | multipart `petition_image`、`disposition_image`（JPG/PNG/WebP，各 ≤ 10 MB）＋選填 `service_date`（前端「送達日期」欄；YYYY-MM-DD 或民國 YYY-MM-DD，解析失敗 422）→ **202** `{case_id}`；pipeline 在 BackgroundTasks 跑 |
 | GET | `/api/cases/{case_id}` | 附錄 A envelope：`{case_id, status, current_stage, adapter_mode, created_at, updated_at, stages{S1,S2,S2_5,S3,S4,S5:{status,data,error,elapsed_ms}}, error}`；不存在 404 |
@@ -102,6 +103,29 @@ tests/
 - Docker：`backend/Dockerfile`（context 是 repo 根目錄，因為要 `data/`）；`docker compose up --build` 見根目錄 README。
 - 沒有取消端點（附錄 A）；前端「停止」只停輪詢。
 - 法條／判解摘要不是手打的：`tools/extract_*.py` 從主辦方 PDF 切出來，存 `data/statutes.json`、`data/precedents.json`（含 `source`）。`data/petitions.jsonl` 是 101 件歷史決定書結構化資料（從 hackathon 目錄同步）。
+
+## 個資前處理（`app/pii.py`，取代法）
+
+黑客松規範第 2 條「AWS 帳戶內不放個資」。S1 OCR 一回來、任何文字送 Bedrock 之前，`pipeline.py` 用**純規則**（不呼叫模型）偵測並取代：
+
+| 類別 | 偵測 | 取代 |
+|---|---|---|
+| 姓名 | 「訴願人／受告誡人／代理人…：」標籤後 2–4 字（已遮罩的 陳○超 不動） | 代號 **甲○○／乙○○…**，同一人全文一致 |
+| 身分證 | `[A-Z][12]\d{8}` | `A1○○○○○○○○` |
+| 電話 | 市話／手機 | `○○○○-○○○-○○○` |
+| 門牌地址 | 縣市區＋路段號樓 | 保留縣市區（管轄），`○○路○段○○號` |
+| 出生年月日 | 「出生年月日：」後的日期 | 保留年（訴願能力），月日 `○` |
+
+- 對照表只在 `Case.pii_map`（記憶體），**不進 envelope、不進 log、不上 AWS**；envelope 多 `pii` 摘要 `{mode, replaced:{name,id,phone,address,dob}, codes}`，S1 的 `ocr_confidence_note` 前面會寫「已去識別化（取代法）：姓名×3、…」讓前端 OCR 頁直接看到。
+- S2／S3／S4 送模型的全是代號版；規則引擎「訴願人＝處分相對人」用代號比對照樣成立。**S4 草稿產出後只還原姓名**（身分證／地址本來就不該出現在決定書）；S2 保持代號版當作「送出去的證據」。
+- 開關 `PII_MASK`：`auto`（預設；bedrock 開、stub 關）／`1`／`0`。
+- 實測（demo 影像含虛構的 0912-345-678、A123456789、北新路二段88號5樓）：S1～S3 envelope 完全不含原值，S4 還原「訴願人王小明」，S2.5 四項 PASS，全鏈 103 s。影像本身仍須送 OCR（無法避免），demo 影像是虛構資料。
+
+## 即時進度（WebSocket，`app/events.py`）
+
+- 前端建案後開 `WS /api/cases/{id}/ws`；輪詢降為 10 s 備援（WS 連不上仍 1.5 s）。nginx `/api/` 已加 Upgrade 標頭。
+- pipeline 用 contextvar 記住目前案件，adapters 呼叫 `events.progress()`；S4 的 `converse()` 帶 `stream_stage="S4"` 時，**有訂閱者且 client 有 `converse_stream`** 才走串流（thread 內逐段 `loop.call_soon_threadsafe` 推 delta），否則走一般 Converse——測試假 client 不受影響。
+- 前端處理面板：標題顯示子步驟（「判解檢索完成（4 段）」「模型依駁回版骨架生成中…」），S4 期間顯示「模型正在撰寫草稿（即時串流）」框，JSON 欄位轉中文標籤即時捲動。實測 Docker：WS 經 nginx 連上，一案收到 11 envelope／8 progress／1,230 delta，第 57 s 起草稿逐字出現，總時間不變（106 s），但等待不再空白。
 
 ## 登入（`app/auth.py`，環境變數設定）
 

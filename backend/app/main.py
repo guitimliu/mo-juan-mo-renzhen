@@ -9,9 +9,10 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -122,6 +123,37 @@ def create_app(adapters: AdapterSet | None = None, store: CaseStore | None = Non
         if case is None:
             raise HTTPException(404, f"case {case_id} not found")
         return case.to_envelope()
+
+    @app.websocket("/api/cases/{case_id}/ws")
+    async def case_ws(ws: WebSocket, case_id: str):
+        """即時進度：連上先送一次 envelope，之後每個階段變化再送；子步驟 progress、生成串流 delta 原樣轉發；
+        20 秒沒事件送 ping 保活；案件 done/error 後送最後一次 envelope 就關閉。驗證開啟時 token 走 query string。"""
+        if auth.enabled() and not auth.verify_token(ws.query_params.get("token") or ""):
+            await ws.close(code=4401)
+            return
+        case = store.get(case_id)
+        if case is None:
+            await ws.close(code=4404)
+            return
+        await ws.accept()
+        q = case.subscribe()
+        try:
+            await ws.send_json({"type": "envelope", "envelope": case.to_envelope()})
+            while case.status not in ("done", "error"):
+                try:
+                    ev = await asyncio.wait_for(q.get(), timeout=20)
+                except asyncio.TimeoutError:
+                    await ws.send_json({"type": "ping"})
+                    continue
+                if ev.get("type") == "stage":
+                    await ws.send_json({"type": "envelope", "envelope": case.to_envelope()})
+                else:
+                    await ws.send_json(ev)
+            await ws.send_json({"type": "envelope", "envelope": case.to_envelope(), "final": True})
+        except WebSocketDisconnect:
+            pass
+        finally:
+            case.unsubscribe(q)
 
     app.include_router(api)
     return app

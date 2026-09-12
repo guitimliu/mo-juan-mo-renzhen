@@ -1,6 +1,6 @@
 # C_莫捲莫認真｜訴願 AI 輔助草擬簡報
 
-Slidev簡報，共10頁，總配時6分鐘。第9頁為58秒預錄Demo影片。
+Slidev簡報，共11頁，總配時約6分鐘。第10頁為58秒預錄Demo影片；第8頁為 `docs/aws-architecture.png` 架構圖：來源是 `docs/aws-architecture.drawio`（draw.io 官方 AWS 圖示，依 vidanov/aws-architecture-diagram-skill 規範），用 draw.io 開啟即可編輯；改圖後重新匯出 PNG 並 `cp docs/aws-architecture.png slides/public/images/`。
 
 ## 啟動
 
@@ -27,4 +27,8 @@ npm run build
 
 靜態網站輸出至`slides/dist/`。圖片與影片隨建置打包；`node_modules/`與`dist/`不提交。
 
-配時：15、35、25、40、55、55、35、25、60、15秒，合計360秒。
+配時：15、30、40、35、30、35、35、25、35、60、15秒，合計355秒。
+
+## Docker
+
+`docker compose up --build` 會一併建置簡報（`slides/Dockerfile`：Slidev build → nginx），前端 nginx 把 `/slides/` 反向代理過去：http://localhost:8080/slides/ ；前端側欄也有「簡報」連結。
