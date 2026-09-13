@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import Icon from './components/AppIcon.vue'
 import DocumentZoom from './components/DocumentZoom.vue'
 import ProcessingStatus from './components/ProcessingStatus.vue'
 import LoginPanel from './components/LoginPanel.vue'
 import { parseRocDate } from './rocDate'
 import { showDeveloperChecks, steps, empty, buildView, stagesFrom } from './data/demo'
-import { ApiError, createCase, getCase, getHealth, sleep, fetchDemoFiles, getToken, setToken, onUnauthorized, openCaseSocket, POLL_INTERVAL_MS, POLL_FALLBACK_MS, POLL_TIMEOUT_MS, type CaseEnvelope, type CaseEvent, type CaseSocket } from './api'
+import { ApiError, createCase, getCase, getHealth, sleep, fetchDemoFiles, getToken, setToken, onUnauthorized, openCaseSocket, listCases, getCurrentDraft, listDrafts, saveDraft, restoreDraft, fetchCaseFile, POLL_INTERVAL_MS, POLL_FALLBACK_MS, POLL_TIMEOUT_MS, type CaseEnvelope, type CaseEvent, type CaseSocket, type CaseSummary, type DraftMeta, type S4 } from './api'
 
 // 資料流：view 由 envelope（後端 API）或 fixture（保底）建出；template 透過下列 computed 讀取。
 const view = ref(empty())
@@ -23,6 +23,121 @@ const pii = ref<CaseEnvelope['pii']>(null)
 const liveNote = ref('')            // WebSocket progress：目前子步驟說明
 const liveText = ref('')            // WebSocket delta：S4 生成中的草稿串流
 let socket: CaseSocket | null = null
+
+// ---- 持久層：我的案件列表、承辦人草稿版本（後端 DATABASE_URL 有設才會有儲存鍵；列表不需 DB）----
+const dbEnabled = ref(false)
+const caseList = ref<CaseSummary[]>([])
+const caseListLoading = ref(false)
+const lastEnvelope = shallowRef<CaseEnvelope | null>(null)   // 最近一次 envelope：切換草稿版本／歷史統計列用
+const draftVersion = ref(0)                    // 0＝AI 原稿
+const draftVersions = ref<DraftMeta[]>([])
+const editing = ref(false)
+const saving = ref(false)
+const editNote = ref('')
+const edited = ref<{ holding: string; facts: string; reasons: string[]; instruction: string }>({ holding: '', facts: '', reasons: [], instruction: '' })
+const draftLabel = computed(() => draftVersion.value ? `承辦人版 v${draftVersion.value}` : 'AI 原稿')
+const history = computed(() => lastEnvelope.value?.stages.S3?.data?.history ?? null)
+const historyLabel = computed(() => {
+  const h = history.value
+  if (!h || !h.cases) return ''
+  const pct = (k: string) => `${k} ${Math.round(100 * (h.outcome[k] ?? 0) / h.cases)}%`
+  return `歷史同案型「${h.case_type}」${h.cases.toLocaleString()} 篇：${['駁回', '撤銷', '不受理'].map(pct).join('、')}（新北市法制局 2004–2026 訴願決定書統計）`
+})
+async function refreshCaseList() {
+  if (!loggedIn.value) return
+  caseListLoading.value = true
+  try { caseList.value = (await listCases()).cases } catch { /* 列表失敗不影響工作台 */ } finally { caseListLoading.value = false }
+}
+function caseListTitle(c: CaseSummary) {
+  return { queued: '排隊中', running: '分析中', done: '草稿待審閱', error: '分析失敗' }[c.status] || c.status
+}
+// 把目前生效的草稿版本套進 view（content 為 S4 形狀；null＝AI 原稿）
+function applyDraft(content: S4 | null, version: number) {
+  if (!lastEnvelope.value) return
+  const stages = stagesFrom(lastEnvelope.value)
+  view.value = buildView(content ? { ...stages, s4: content } : stages)
+  draftVersion.value = version
+}
+async function loadDraftState(id: string) {
+  draftVersion.value = 0; draftVersions.value = []
+  if (!dbEnabled.value) return
+  try {
+    const cur = await getCurrentDraft(id)
+    if (cur.version > 0) applyDraft(cur.content, cur.version)
+    draftVersions.value = (await listDrafts(id)).drafts
+  } catch { /* 501／404：沒有草稿功能或案件 */ }
+}
+// 從「我的案件」列表開啟一個已存在的案件（重啟後也能回來）
+async function openCase(id: string) {
+  if (running.value || exporting.value || demoLoading.value || id === caseId.value) return
+  try {
+    const env = await getCase(id)
+    reset()
+    lastEnvelope.value = env
+    caseId.value = id
+    dataSource.value = 'api'
+    adapterMode.value = env.adapter_mode || adapterMode.value
+    pii.value = env.pii ?? null
+    view.value = buildView(stagesFrom(env))
+    ready.value = env.status === 'done'
+    processingVisible.value = env.status !== 'done'
+    processingComplete.value = env.status === 'done'
+    processingError.value = env.status === 'error' ? (env.error || '分析未完成') : ''
+    progress.value = env.status === 'done' ? 6 : progressFrom(env)
+    await loadDraftState(id)
+    if (dbEnabled.value) {   // 上傳影像回看（需 token，走 fetch → object URL）
+      const [p, d] = await Promise.all([fetchCaseFile(id, 'petition_image'), fetchCaseFile(id, 'disposition_image')])
+      previews.value = [p, d]
+    }
+    active.value = ready.value ? 4 : 0
+    notify(`已載入案件 ${id}（${draftLabel.value}）`)
+  } catch (error) {
+    notify(error instanceof ApiError ? error.message : '載入案件失敗')
+  }
+}
+function startEdit() {
+  const s4 = currentS4()
+  if (!s4) return
+  edited.value = { holding: s4.holding, facts: s4.facts, reasons: [...s4.reasons], instruction: s4.instruction }
+  editNote.value = ''
+  editing.value = true
+}
+function currentS4(): S4 | null {
+  const parts = draft.value
+  if (!parts.length || !lastEnvelope.value) return null
+  const base = lastEnvelope.value.stages.S4.data
+  if (!base) return null
+  const reasons = parts.filter(p => p.title.startsWith('理由')).map(p => p.text)
+  return { ...base, holding: parts.find(p => p.title === '主文')?.text ?? base.holding, facts: parts.find(p => p.title === '事實')?.text ?? base.facts, reasons: reasons.length ? reasons : base.reasons, instruction: parts.find(p => p.title === '教示')?.text ?? base.instruction }
+}
+async function saveEdit() {
+  const base = lastEnvelope.value?.stages.S4.data
+  if (!base || saving.value) return
+  saving.value = true
+  try {
+    const content: S4 = { ...base, ...edited.value, reasons: edited.value.reasons.map(r => r.trim()).filter(Boolean) }
+    const r = await saveDraft(caseId.value, content, editNote.value.trim() || undefined)
+    applyDraft(content, r.version)
+    draftVersions.value = (await listDrafts(caseId.value)).drafts
+    editing.value = false
+    notify(`已儲存承辦人版 v${r.version}`)
+  } catch (error) {
+    notify(error instanceof ApiError ? error.message : '儲存失敗，請稍後重試')
+  } finally { saving.value = false }
+}
+async function switchDraft(version: number) {
+  if (saving.value || version === draftVersion.value) return
+  try {
+    await restoreDraft(caseId.value, version)
+    if (version === 0) applyDraft(null, 0)
+    else { const d = await getCurrentDraft(caseId.value); applyDraft(d.content, d.version) }
+    draftVersions.value = (await listDrafts(caseId.value)).drafts
+    editing.value = false
+    notify(version === 0 ? '已還原 AI 原稿' : `已切換為承辦人版 v${version}`)
+  } catch (error) {
+    notify(error instanceof ApiError ? error.message : '切換版本失敗')
+  }
+}
 const piiLabel = computed(() => pii.value ? `已去識別化（${pii.value.mode === 'pseudonym' ? '取代法' : pii.value.mode}）：${Object.entries(pii.value.replaced || {}).filter(([, n]) => n).map(([k, n]) => `${({ name: '姓名', id: '身分證', phone: '電話', address: '地址', dob: '生日' } as Record<string, string>)[k] || k}×${n}`).join('、')}` : '')
 const sources = computed(() => view.value.sources)
 const draft = computed(() => view.value.draft)
@@ -210,7 +325,10 @@ function reset() {
   selectedSource.value = 'statutes[0]'
   toast.value = ''
   clearTimeout(toastTimer)
-
+  lastEnvelope.value = null
+  draftVersion.value = 0
+  draftVersions.value = []
+  editing.value = false
 }
 function selectFile(event: Event, index: number) {
   if (running.value || exporting.value || demoLoading.value) return
@@ -311,6 +429,7 @@ async function runDemo() {
   timer = setInterval(() => { elapsed.value = Math.floor((Date.now() - startedAt) / 1000) }, 250)
   // 套用一次 envelope（WebSocket 與輪詢共用）；回傳 true 表示已結束
   const applyEnvelope = (env: CaseEnvelope, case_id: string): boolean => {
+    lastEnvelope.value = env
     view.value = buildView(stagesFrom(env))
     adapterMode.value = env.adapter_mode || adapterMode.value
     pii.value = env.pii ?? null
@@ -323,6 +442,7 @@ async function runDemo() {
       processingComplete.value = true
       liveNote.value = ''
       notify(`案件 ${case_id} 已完成，可以開始核對`)
+      void refreshCaseList(); void loadDraftState(case_id)
       return true
     }
     if (env.status === 'error') { console.error('Case processing failed', env.error); failRun('分析未完成，文件已保留，請重新嘗試。'); return true }
@@ -335,6 +455,7 @@ async function runDemo() {
     if (myRun !== run) return
     caseId.value = case_id
     progress.value = 1
+    void refreshCaseList()
     // WebSocket 即時進度：階段變化立即到、子步驟說明、生成草稿逐字串流；連不上就退回 1.5 s 輪詢
     let finished = false
     socket?.close()
@@ -364,7 +485,9 @@ async function refreshHealth() {
     const h = await getHealth()
     adapterMode.value = h.adapter_mode
     authRequired.value = !!h.auth_required
+    dbEnabled.value = !!h.db
     if (!authRequired.value) loggedIn.value = true       // 後端沒開驗證：直接進工作台
+    void refreshCaseList()
   } catch {
     adapterMode.value = null
   }
@@ -411,7 +534,8 @@ onUnmounted(() => { window.removeEventListener('beforeunload', warnBeforeLeaving
       <a class="nav-main nav-link" :href="slidesUrl" target="_blank" rel="noopener" title="開新分頁檢視專案簡報"><Icon name="book" />專案簡報<Icon name="arrow" :size="14" /></a>
       <div class="side-divider"></div>
       <div class="side-heading case-list-heading">案件列表 <button class="new-case" title="新建案件" aria-label="新建案件" :disabled="running || exporting || demoLoading" @click="requestCase('new')"><Icon name="plus" :size="18" /></button></div>
-      <button class="case-nav" @click="active = ready ? 1 : 0"><Icon name="file" /><span><b>{{ caseLabel }}</b><small>{{ caseTitle }}</small></span></button>
+      <button v-if="!caseList.some(c => c.case_id === caseId)" class="case-nav selected" @click="active = ready ? 1 : 0"><Icon name="file" /><span><b>{{ caseLabel }}</b><small>{{ caseTitle }}</small></span></button>
+      <div class="case-list" aria-label="我的案件"><button v-for="c in caseList" :key="c.case_id" class="case-nav case-item" :class="{ selected: c.case_id === caseId }" :disabled="running || exporting || demoLoading" :title="`${c.case_id}｜${c.updated_at}`" @click="openCase(c.case_id)"><Icon name="file" :size="16" /><span><b>{{ c.case_id }}<em v-if="c.draft"> v{{ c.draft.version }}</em></b><small>{{ caseListTitle(c) }} · {{ c.updated_at.slice(5, 16).replace('T', ' ') }}</small></span></button><small v-if="!caseList.length && !caseListLoading" class="case-list-empty">{{ dbEnabled ? '尚無案件' : '案件僅保存到後端重啟' }}</small></div>
       <div class="side-bottom"><div class="user"><span class="avatar">{{ (currentUser || 'E').slice(0, 1).toUpperCase() }}</span><span>{{ currentUser || '案件工作空間' }}</span><button v-if="authRequired" class="logout" title="登出" aria-label="登出" @click="logout"><Icon name="logout" :size="16" /><span>登出</span></button><span v-else class="online"></span></div></div>
     </aside>
 
@@ -429,7 +553,7 @@ onUnmounted(() => { window.removeEventListener('beforeunload', warnBeforeLeaving
 
         <nav ref="pipelineNav" class="pipeline" aria-label="案件處理階段" :aria-busy="running"><button v-for="(step, i) in steps" :key="step.title" :class="{ current: running ? progress === i : active === i, done: running && i < progress }" :aria-current="(running ? progress === i : active === i) ? 'step' : undefined" :disabled="!stepAvailable(i)" :aria-label="step.short + '：' + stepStatus(i)" @click="active = i"><span class="step-number"><Icon v-if="running && i < progress" name="check" :size="15" /><template v-else>{{ String(i + 1).padStart(2, '0') }}</template></span><span>{{ step.short }}</span><Icon v-if="i < steps.length - 1" class="step-chevron" name="chevron" :size="14" /></button></nav>
 
-        <div class="section-heading"><div><h2 ref="sectionTitle" tabindex="-1">{{ steps[active]!.title }} <span v-if="active === 4" class="tag">初稿 v1</span></h2><p>{{ steps[active]!.description }}</p></div><div v-if="ready && active === 4" class="export-actions"><button class="button primary" :disabled="exporting" @click="downloadDraft()"><Icon name="download" :size="17" />{{ exporting ? '匯出中…' : '匯出 PDF' }}</button><button class="button secondary" :disabled="exporting" @click="downloadDraft('docx')">匯出 Word</button></div></div>
+        <div class="section-heading"><div><h2 ref="sectionTitle" tabindex="-1">{{ steps[active]!.title }} <span v-if="active === 4" class="tag" :class="{ green: draftVersion }">{{ draftLabel }}</span></h2><p>{{ steps[active]!.description }}</p></div><div v-if="ready && active === 4" class="export-actions"><template v-if="dbEnabled && lastEnvelope"><label v-if="draftVersions.length" class="version-select"><span>版本</span><select :value="draftVersion" :disabled="exporting || saving || editing" @change="switchDraft(Number(($event.target as HTMLSelectElement).value))"><option :value="0">AI 原稿</option><option v-for="v in draftVersions" :key="v.version" :value="v.version">v{{ v.version }}{{ v.note ? ' · ' + v.note : '' }}（{{ v.edited_by || '承辦人' }}）</option></select></label><button v-if="!editing" class="button secondary" :disabled="exporting || saving" @click="startEdit"><Icon name="edit" :size="17" />編輯草稿</button></template><button class="button primary" :disabled="exporting || editing" @click="downloadDraft()"><Icon name="download" :size="17" />{{ exporting ? '匯出中…' : '匯出 PDF' }}</button><button class="button secondary" :disabled="exporting || editing" @click="downloadDraft('docx')">匯出 Word</button></div></div>
 
         <div class="step-guidance"><span>第 {{ active + 1 }} / {{ steps.length }} 步</span><p>{{ guidance[active] }}</p></div>
         <template v-if="active === 0">
@@ -456,11 +580,11 @@ onUnmounted(() => { window.removeEventListener('beforeunload', warnBeforeLeaving
         </template>
 
         <template v-else-if="active === 3">
-          <div class="filter-row"><button v-for="type in ['全部', '法條', '判解', '立法理由', '相似案']" :key="type" :class="{ active: filter === type }" @click="filter = type">{{ type }} <span>{{ type === '全部' ? sources.length : sources.filter(s => s.type === type).length }}</span></button></div><div class="retrieval-grid"><article class="panel source-result" v-for="item in filteredSources" :key="item.id"><span class="tag">{{ item.type }}</span><h3>{{ item.title }}</h3><p class="muted">{{ item.subtitle }}</p><p>{{ item.content }}</p><div class="result-footer"><span class="tag green">{{ item.tag }}</span></div></article></div>
+          <div v-if="historyLabel" class="info-bar history-bar"><Icon name="book" :size="16" />{{ historyLabel }}</div><div class="filter-row"><button v-for="type in ['全部', '法條', '判解', '立法理由', '相似案']" :key="type" :class="{ active: filter === type }" @click="filter = type">{{ type }} <span>{{ type === '全部' ? sources.length : sources.filter(s => s.type === type).length }}</span></button></div><div class="retrieval-grid"><article class="panel source-result" v-for="item in filteredSources" :key="item.id"><span class="tag">{{ item.type }}</span><h3>{{ item.title }}</h3><p class="muted">{{ item.subtitle }}</p><p>{{ item.content }}</p><div class="result-footer"><span class="tag green">{{ item.tag }}</span></div></article></div>
         </template>
 
         <template v-else-if="active === 4">
-          <div class="draft-layout"><section class="document-panel"><div class="document-toolbar"><span><Icon name="file" :size="16" />{{ caseLabel }}_訴願決定書</span><span><span class="small-dot"></span>已生成 <span class="toolbar-divider">|</span> 草稿</span></div><article class="decision-paper"><div class="paper-topline"><span>新北市政府</span><span class="draft-stamp">草 稿</span></div><h2>訴願決定書</h2><div class="paper-case-number">案號：{{ caseLabel }}</div><dl class="paper-meta"><div><dt>訴願人</dt><dd>{{ header.appellant || summary.appellant.name || '—' }}</dd></div><div><dt>原處分機關</dt><dd>{{ header.agency || summary.agency || '—' }}</dd></div><div><dt>案由</dt><dd>{{ header.case_type || summary.case_type || '—' }}</dd></div></dl><p class="paper-intro">訴願人因{{ header.case_type || summary.case_type || '本件' }}，不服原處分機關{{ header.disposition_ref || '' }}所為之{{ summary.disposition.type || '處分' }}，提起訴願，本府決定如下：</p><section v-for="part in draft" :key="part.title" class="draft-section"><div class="draft-section-title"><h3>{{ part.title }}</h3><button v-if="part.citations.length" :aria-expanded="expanded === part.title" @click="expanded = expanded === part.title ? '' : part.title"><Icon name="link" :size="13" />{{ part.citations.length }} 筆引用 <span>{{ expanded === part.title ? '−' : '+' }}</span></button><span v-else class="paper-note">{{ part.title === '教示' ? '待人工補正' : '依案件摘要' }}</span></div><p>{{ part.text }}</p><div v-if="expanded === part.title" class="citation-chips"><button v-for="c in part.citations" :key="c.id + c.label" :class="{ selected: selectedSource === c.id }" :title="sources.find(s => s.id === c.id)?.title" @click="showSource(c.id)"><Icon name="book" :size="13" />{{ c.label }}<Icon name="chevron" :size="12" /></button></div></section><footer class="paper-footer">草稿內容須由承辦人核對事實、引用依據及救濟教示。</footer></article><div class="document-foot"><span>{{ draft.length }} 個段落</span><span>草稿 · 待人工審閱</span></div></section>
+          <div class="draft-layout"><section class="document-panel"><div class="document-toolbar"><span><Icon name="file" :size="16" />{{ caseLabel }}_訴願決定書</span><span><span class="small-dot"></span>已生成 <span class="toolbar-divider">|</span> 草稿</span></div><article class="decision-paper"><div class="paper-topline"><span>新北市政府</span><span class="draft-stamp">草 稿</span></div><h2>訴願決定書</h2><div class="paper-case-number">案號：{{ caseLabel }}</div><dl class="paper-meta"><div><dt>訴願人</dt><dd>{{ header.appellant || summary.appellant.name || '—' }}</dd></div><div><dt>原處分機關</dt><dd>{{ header.agency || summary.agency || '—' }}</dd></div><div><dt>案由</dt><dd>{{ header.case_type || summary.case_type || '—' }}</dd></div></dl><p class="paper-intro">訴願人因{{ header.case_type || summary.case_type || '本件' }}，不服原處分機關{{ header.disposition_ref || '' }}所為之{{ summary.disposition.type || '處分' }}，提起訴願，本府決定如下：</p><div v-if="editing" class="edit-bar" role="region" aria-label="編輯草稿"><Icon name="edit" :size="16" /><span>逐段修改後儲存為新版本；AI 原稿不會被覆蓋，可隨時還原。</span><input v-model="editNote" type="text" placeholder="版本備註（選填）" maxlength="80" aria-label="版本備註" /><button class="button primary" :disabled="saving" @click="saveEdit">{{ saving ? '儲存中…' : '儲存版本' }}</button><button class="button secondary" :disabled="saving" @click="editing = false">取消</button></div><section v-for="(part, pi) in draft" :key="part.title" class="draft-section"><div class="draft-section-title"><h3>{{ part.title }}</h3><button v-if="part.citations.length" :aria-expanded="expanded === part.title" @click="expanded = expanded === part.title ? '' : part.title"><Icon name="link" :size="13" />{{ part.citations.length }} 筆引用 <span>{{ expanded === part.title ? '−' : '+' }}</span></button><span v-else class="paper-note">{{ part.title === '教示' ? '待人工補正' : '依案件摘要' }}</span></div><textarea v-if="editing" class="draft-edit" :aria-label="'編輯' + part.title" rows="4" :value="part.title === '主文' ? edited.holding : part.title === '事實' ? edited.facts : part.title === '教示' ? edited.instruction : (edited.reasons[pi - 2] ?? '')" @input="e => { const v = (e.target as HTMLTextAreaElement).value; if (part.title === '主文') edited.holding = v; else if (part.title === '事實') edited.facts = v; else if (part.title === '教示') edited.instruction = v; else edited.reasons[pi - 2] = v }"></textarea><p v-else>{{ part.text }}</p><div v-if="expanded === part.title && !editing" class="citation-chips"><button v-for="c in part.citations" :key="c.id + c.label" :class="{ selected: selectedSource === c.id }" :title="sources.find(s => s.id === c.id)?.title" @click="showSource(c.id)"><Icon name="book" :size="13" />{{ c.label }}<Icon name="chevron" :size="12" /></button></div></section><footer class="paper-footer">草稿內容須由承辦人核對事實、引用依據及救濟教示。</footer></article><div class="document-foot"><span>{{ draft.length }} 個段落</span><span>{{ draftLabel }} · 待人工審閱</span></div></section>
           <aside class="evidence-column"><section class="panel evidence-panel"><div class="panel-title"><Icon name="book" :size="18" /><h3>引用依據</h3><span class="count">{{ sources.length }}</span></div><p class="evidence-hint">點選草稿中的引用，查看對應來源。</p><div class="source-list"><button v-for="item in sources" :key="item.id" :class="{ active: selectedSource === item.id }" @click="showSource(item.id)"><span class="source-type">{{ item.type }}</span><span><b>{{ item.title }}</b><small>{{ item.subtitle }}</small></span><Icon name="chevron" :size="14" /></button></div><div ref="sourceDetail" class="source-detail" tabindex="-1" aria-label="引用來源內容"><div><span class="tag">{{ source.tag }}</span></div><h4>{{ source.title }}</h4><p>{{ source.content }}</p></div></section><section class="panel gap-panel"><div class="panel-title"><Icon name="info" :size="18" /><h3>待補查與資料差異</h3><span class="tag amber">{{ gaps.length }}</span></div><ul><li v-for="gap in gaps" :key="gap">{{ gap }}</li></ul></section><section v-if="showDeveloperChecks" class="panel quick-check"><div class="panel-title"><Icon name="shield" :size="18" /><h3>草稿檢核</h3><span class="tag amber">{{ report.checks.length ? `${totals.passed} / ${totals.total}` : '未檢核' }}</span></div><div v-for="item in checks" :key="item.title" class="mini-check"><Icon :name="item.status ? 'check' : 'info'" :size="16" :class="item.status ? 'text-green' : 'text-amber'" /><span>{{ item.title }}</span></div><button class="review-link" @click="active = 5">檢視完整檢核表 <Icon name="arrow" :size="16" /></button></section><div class="human-note"><Icon name="info" :size="18" /><p>AI 提供輔助，判斷仍由人作成。<br>請確認事實、法源及救濟教示。</p></div></aside></div>
         </template>
 

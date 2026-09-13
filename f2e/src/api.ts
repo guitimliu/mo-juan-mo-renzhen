@@ -27,10 +27,14 @@ export interface S2 {
 export interface ProcedureCheck { rule: string; pass: boolean; note?: string; served?: string | null; filed?: string | null; days?: number | null; needs_review?: boolean; category?: string; inputs?: Record<string, unknown> }
 export interface S25 { admissible: boolean; checks: ProcedureCheck[]; defect_flags?: { flag: string; law: string; note: string }[]; needs_review?: string[] }
 export interface S3 {
-  statutes: { law: string; article: string; text: string; version_date?: string | null }[]
+  // basis／note：歷史決定書法條索引補上的條文（同案型 N 篇中 M% 引用）
+  statutes: { law: string; article: string; text: string; version_date?: string | null; basis?: string; note?: string }[]
   precedents: { id: string; topic?: string; excerpt: string; score?: number }[]
   interpretations: { id: string; excerpt: string }[]
-  similar_cases: { id: string; result: string; why_similar: string; score?: number; holding?: string; case_type?: string }[]
+  similar_cases: { id: string; result: string; why_similar: string; score?: number; holding?: string; case_type?: string; source?: string; decided?: string }[]
+  // 同案型歷史決定書分布（26,607 篇統計；案由對不到索引時為 null）
+  history?: { case_type: string; cases: number; outcome: Record<string, number> } | null
+  note?: string
 }
 export interface Citation { text: string; source: string; section: 'facts' | 'reasons' | 'instruction'; index: number }
 export interface S4 {
@@ -66,10 +70,15 @@ export interface CaseEnvelope {
   // 個資前處理摘要（bedrock 模式；stub 為 null）：S1 後姓名→甲○○ 等代號，S4 還原；對照表只在後端記憶體
   pii?: { mode: string; replaced: Record<string, number>; codes: string[] } | null
   error: string | null
+  // 持久層（DATABASE_URL 有設）：目前生效的承辦人草稿版本；null＝AI 原稿
+  draft?: DraftMeta | null
 }
+export interface DraftMeta { version: number; edited_at: string | null; edited_by: string | null; note: string | null; is_current?: boolean }
+export interface DraftDoc extends DraftMeta { case_id: string; content: S4 }
+export type CaseSummary = Omit<CaseEnvelope, 'stages'> & { stages: Record<StageKey, Omit<StageState<unknown>, 'data'>> }
 export interface ModelStage { configured: string; active: string }
 export interface ModelConfig { default: string; fallback: string | null; kb_id: string; region: string; stages: Record<'ocr' | 'extract' | 'retrieval' | 'generate', ModelStage>; fallbacks_in_effect: Record<string, string> }
-export interface Health { status: string; adapter_mode: string; auth_required?: boolean; models?: ModelConfig }
+export interface Health { status: string; adapter_mode: string; auth_required?: boolean; db?: boolean; models?: ModelConfig }
 export interface LoginResult { auth_required: boolean; token: string | null; expires_at?: number; username?: string }
 
 // ---- 登入 token（後端 AUTH_USERNAME／AUTH_PASSWORD 有設才需要）----
@@ -142,6 +151,25 @@ export function createCase(petition: File, disposition: File, serviceDate?: stri
 }
 
 export const getCase = (caseId: string) => request<CaseEnvelope>(`/api/cases/${encodeURIComponent(caseId)}`)
+export const listCases = () => request<{ cases: CaseSummary[] }>('/api/cases')
+
+// ---- 持久層（後端 DATABASE_URL 有設才可用；沒設回 501）：承辦人草稿版本、上傳影像回看 ----
+const casePath = (caseId: string) => `/api/cases/${encodeURIComponent(caseId)}`
+export const getCurrentDraft = (caseId: string) => request<DraftDoc>(`${casePath(caseId)}/drafts/current`)
+export const listDrafts = (caseId: string) => request<{ case_id: string; drafts: DraftMeta[] }>(`${casePath(caseId)}/drafts`)
+export const saveDraft = (caseId: string, content: S4, note?: string) =>
+  request<{ case_id: string; version: number; edited_at: string }>(`${casePath(caseId)}/draft`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content, note: note || null }) })
+export const restoreDraft = (caseId: string, version: number) =>
+  request<{ case_id: string; current_version: number }>(`${casePath(caseId)}/drafts/${version}/restore`, { method: 'POST' })
+/** 回看已存的上傳影像 → object URL（需 Authorization header，所以不能直接 <img src>）；失敗回空字串 */
+export async function fetchCaseFile(caseId: string, field: 'petition_image' | 'disposition_image'): Promise<string> {
+  const token = getToken()
+  try {
+    const r = await fetch(`${API_BASE}${casePath(caseId)}/files/${field}`, { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
+    if (!r.ok) return ''
+    return URL.createObjectURL(await r.blob())
+  } catch { return '' }
+}
 
 export const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 
