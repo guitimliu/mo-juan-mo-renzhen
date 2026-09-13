@@ -135,11 +135,11 @@ class: arch-slide
 
 <img src="/images/aws-architecture.png" class="arch-img" alt="AWS 架構與資料流" />
 
-<div class="foot"><span>EC2 Docker Compose（Vue＋FastAPI）→ Bedrock Converse（Sonnet 5，降級 4.6）＋ Knowledge Base（Titan v2＋S3 Vectors）｜us-west-2</span><span>08 / 11</span></div>
+<div class="foot"><span>CloudFront → 彈性 IP → EC2 Docker Compose（Vue＋FastAPI＋PostgreSQL）→ Bedrock Converse（Sonnet 5，降級 4.6）＋ Knowledge Base（Titan v2＋S3 Vectors）｜us-west-2</span><span>08 / 11</span></div>
 
 <!--
 建議配時：25 秒。
-左邊是 EC2 上 Docker Compose 一鍵起的三個容器，右邊是 Bedrock。模型用環境變數設定，預設 Sonnet 5，帳戶拿不到會自動降級。全部呼叫共用 1 RPS 限流，符合主辦方規範。
+入口走 CloudFront 的 HTTPS 子網域，origin 指向 EC2 的彈性 IP；EC2 上 Docker Compose 一鍵起前端、後端、PostgreSQL 與簡報四個容器，右邊是 Bedrock。模型用環境變數設定，預設 Sonnet 5，帳戶拿不到會自動降級。全部呼叫共用 1 RPS 限流，符合主辦方規範。
 -->
 
 ---

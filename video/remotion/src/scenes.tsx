@@ -187,6 +187,7 @@ export const Demo: React.FC = () => {
       </div>
       <Narration id="06_demo_a" from={0} />
       <Sequence from={sec(15)} layout="none"><Narration id="06b_demo_wait" /></Sequence>
+      <Sequence from={sec(15) + sec(nar("06b_demo_wait").duration) + sec(0.8)} layout="none"><Narration id="06c_demo_stream" /></Sequence>
       <Sequence from={s07} layout="none"><Narration id="07_demo_b" /></Sequence>
       <Sequence from={s08} layout="none"><Narration id="08_demo_c" /></Sequence>
     </Page>
