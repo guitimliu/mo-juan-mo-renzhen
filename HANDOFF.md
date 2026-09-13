@@ -1,8 +1,35 @@
 # HANDOFF — 給下一個 session
 
-更新：2026-09-12 16:10。上一個 session 完成資料盤點、案例選定、五人分工、A 角色工作包；**本 session（hackathon-c8）完成 `backend/`（stub 管線）並把 E 的前端接上真 API；平行 session（aws-test-95）同時把 `bedrock.py` 四段（OCR／Extract／Retrieval／Generate）接上 AWS（KB `ZOMMOWFOT2`）**。
-團隊 repo：https://github.com/guitimliu/mo-juan-mo-renzhen，**PR #7 已於 2026-09-13 10:50 合併進 main（`90c0cbf`）**；`backend` 分支保留，之後改動 pull 後在 backend 繼續或直接對 main 開 PR；EC2 部署 checkout main。本機 clone 在 `mo-juan-mo-renzhen/`。
-**現況：WebSocket 即時進度（子步驟＋S4 草稿串流，輪詢改備援）已加；個資前處理（取代法，S1 後姓名→甲○○、證號／電話／地址／生日遮罩，S4 還原姓名，對照表不出本機）已加；帳密登入（`AUTH_USERNAME`／`AUTH_PASSWORD`，不設＝免登入）與前端「一鍵 Demo」已加；模型預設 Sonnet 5、可用環境變數設定、帳戶不可用自動降級 4.6；`ADAPTER=bedrock` 端到端已通，Generate 實測 S5 29/31（剩 2 分是正本才有的 LINE 對話內容，輸入文件沒有）；`docker compose up --build` 可一鍵起前後端（§2.5）。** 已合併 E 的前端 v2（main）：送達日期欄位、PDF／Word 匯出、隱藏第 6 步。
+更新：**2026-09-13 13:35（aws-test session 結束）**。`main`＝`backend`＝`977741d`，工作樹乾淨。線上站 https://drod66yo9d2zo.cloudfront.net/ ，影片 https://youtu.be/pfJ2o0RFwcM 。
+
+## 0. 現在的狀態（先看這裡）
+
+| 項目 | 狀態 |
+|---|---|
+| 程式 | 全部在 `main`（PR #7–#12 已合併）：26,607 篇歷史決定書索引與 S3 檢索擴充、PostgreSQL 持久層＋草稿版本 API、前端案件列表／草稿編輯／版本／歷史統計、承辦人用語、架構圖、影片 v3 產線、README 評審版 |
+| 測試 | backend pytest 135 綠；f2e build 通過；Playwright 煙霧測試 `f2e/tests/persistence_ui.py`；compose bedrock 端到端 poc-002 六階段全 done、S5 28/31 |
+| KB `ZOMMOWFOT2` | ingestion job `OB93DQMTUE` **COMPLETE**（13:30）：新索引 25,002 篇、失敗 1,605 篇（6%，未追查；可用 `aws bedrock-agent list-ingestion-job-... ` 或重跑 `start-ingestion-job` 補） |
+| 影片 | v3 成品 `video/out/mjmr_demo_video.mp4`（299.6 s ≤ 6 分鐘；本機、gitignore）；側檔 `video/out/mjmr_demo_video.{md,srt,json}`、`youtube_description.txt`、封面 `video/thumb/yt_thumbnail@2x.png` 皆在 repo。**YouTube 上的影片本體是否已換成 v3、描述／字幕／封面是否已更新——由 James 手動處理，未確認** |
+| AWS 憑證 | `.env` 與 `~/.aws/credentials [hackathon]` 為 2026-09-13 上午的臨時 token，13:34 仍有效；**EC2 上的 `.env` 由組員同步**。過期後：portal 重取 → 換三個 `AWS_*` → `docker compose up -d --force-recreate backend` |
+| EC2 部署 | 需 `git pull origin main && docker compose up -d --build`（多了 `db` 服務、Dockerfile 新增資料檔、前後端都有改）。**是否已更新到最新 main 未確認** |
+| ElevenLabs | 金鑰在 `video/.env` `ELEVENLABS_API_KEY`（gitignore）；starter 方案一次一個生成請求 |
+| 本機 docker | `mo-juan-mo-renzhen-{frontend,backend,db,slides}` 在跑（8091／8010）；DB 有 poc-001（草稿 v1–v4 為測試）與 poc-002，demo 前可 `docker compose down -v` 清掉 |
+
+## 0.1 待辦（依優先序）
+1. **EC2 更新到最新 main** 並換 token；確認線上站 `/api/health` 回 `db: true`。
+2. YouTube：確認影片本體為 v3（4:59.6）、貼 `video/out/youtube_description.txt`、上傳 `mjmr_demo_video.srt` 字幕、上傳封面。
+3. KB ingestion 失敗的 1,605 篇：若在意，抓失敗清單重跑；不影響 demo。
+4. `statutes.json` 補高頻法規全文（`docs/ntpc_appeals_analysis.md` §4.1 清單），補了之後 `law_index` 的條文才會全部附原文。
+5. 前端若要再調：`App.vue` 持久層區塊、側欄列表、草稿頁 heading／section 三處是本 session 動的地方；隊友 E 在同檔改 UI，合併時留意。
+6. 正式化（非黑客松必要）：EC2 掛 IAM role（Workshop 帳戶可能不允許 `iam:CreateRole`）、RDS＋S3、多帳號、影像保存期限。
+
+## 0.2 本 session 踩過的坑
+- `pkill -f`／`pkill -x uvicorn` 會殺到 shell 自己或使用者其他 dev server；要停程序請用 `ss -ltnp` 找 PID。
+- Codex CLI：`gpt-5.6` 名稱在 ChatGPT 帳號被拒，用 config 預設模型；非 TTY 下要 `< /dev/null` 否則卡在等 stdin。
+- draw.io 匯出：embed 協定訊息是發給 parent window，要用 iframe host page 接（`docs/aws-architecture.md` 有流程）。
+- Remotion 字幕與 SRT：句子時長權重要用口白（中文數字）字數，不能用字幕（阿拉伯數字）字數。
+- 混音 `mix_music.sh` 的 Demo 起訖要用當版的場景長度算（v3 為 132.93–233.53 s），不能沿用舊值。
+- 單一 ffmpeg filter_complex 接視訊會讓 7.7 GB 的 WSL 當機；分段、單輸入、`-threads 1`。
 
 ---
 
