@@ -25,7 +25,7 @@ import re
 import time
 from functools import lru_cache
 
-from .. import events, rules, settings
+from .. import events, law_index, rules, settings
 from . import stub as _stub   # 只借讀檔工具（statutes_table／petitions），不用它的假資料
 from .base import UploadedImage
 
@@ -562,7 +562,16 @@ def statutes_for(s2: dict, similar: list[dict], precedents: list[dict]) -> list[
     blob = "".join((s2.get("appellant_claims") or []) + (s2.get("issues") or []))
     if re.search(r"故意|過失|不知情|不知道|受騙|被騙|認識", blob):          # 責任條件之爭 → 行政罰法 7
         add(("行政罰法", "7"))
-    return [{k: table[ref][k] for k in ("law", "article", "text", "version_date", "source")} for ref in picked[:8]]
+    out = [{k: table[ref][k] for k in ("law", "article", "text", "version_date", "source")} for ref in picked[:8]]
+    # 歷史同案型決定書高頻實體條文（26,607 篇統計，data/law_index.json）：補處分書沒寫但實務常一併引用的條文
+    for h in law_index.historical_statutes(s2.get("case_type"), exclude=set(picked)):
+        ref = (h["law"], h["article"])
+        if ref in table:
+            row = {k: table[ref][k] for k in ("law", "article", "text", "version_date", "source")}
+            row["basis"] = "歷史決定書統計"
+            row["note"] = f"同案型歷史決定書 {h['cases']} 篇中 {h['share']:.0%} 引用（{h['count']} 篇）"
+            out.append(row)
+    return out
 
 
 class BedrockRetrieval:
@@ -631,12 +640,19 @@ class BedrockRetrieval:
         for x in similar:
             x["why_similar"] = screened["why_similar"].get(x["id"]) or f"同為{x['case_type']}，結果{x['result']}"
 
+        history = law_index.profile(s2.get("case_type"))
+        hist_note = ""
+        if history:
+            oc = history["outcome"]; n = history["cases"] or 1
+            hist_note = f"；歷史同案型「{history['case_type']}」{history['cases']} 篇：" + "、".join(
+                f"{k} {oc.get(k, 0) / n:.0%}" for k in ("駁回", "撤銷", "不受理"))
         return {
             "statutes": statutes_for(s2, similar, precedents),
             "precedents": precedents,
             "interpretations": interpretations,
             "similar_cases": similar,
-            "note": f"KB {self.kb_id} 向量檢索（Titan v2）；篩選模型 {resolve_model(self.model_id)}；法條查 statutes.json；已排除本案決定書 {sorted(own) or '無'}",
+            "history": history,
+            "note": f"KB {self.kb_id} 向量檢索（Titan v2）；篩選模型 {resolve_model(self.model_id)}；法條查 statutes.json＋歷史決定書法條索引；已排除本案決定書 {sorted(own) or '無'}{hist_note}",
         }
 
 
