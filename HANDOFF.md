@@ -133,3 +133,27 @@ commit 前跑過一輪 5 面向 × 2 反駁者的對抗審查（85 個 agent）�
 - WeasyPrint 不套頁面 CSS 進 SVG（只影響報告 PDF，與本次無關）。
 - `07_檢核.py` 用檔名含中文與數字開頭，import 時用 `importlib.util.spec_from_file_location`。
 - 資料集裡沒有真實訴願書，01/02 是逆推的模擬件；主辦方 Q&A 若拿到真實範本，優先替換。
+
+## §V 繳交影片（2026-09-13 交接，aws-test session）
+
+**現況**：影片產線全部可重現（`video/README.md`）。唯一未完成：把修好的 Demo 場景接回成品。機器在 ffmpeg 接回時當機兩次（疑記憶體），所以改用保守設定。
+
+| 檔案（都在 `video/`） | 狀態 |
+|---|---|
+| `narration.json` ＋ `assets/generated/tts/*.wav`（12 句，Leda） | ✅ 每句經 Gemini 聽寫驗證（`tts_report.md`） |
+| `assets/generated/demo_cfr.mp4`（Playwright 實錄 164 s） | ✅ |
+| `remotion/out/final.mp4`（v1，4:49；**音軌正確**，3:23–3:43 畫面黑） | ✅ 音軌沿用 |
+| `remotion/out/demo_scene.mp4`（修正後 Demo 場景，3018 幀） | ✅ 已驗證不黑 |
+| `remotion/out/final_v2.mp4` | ❌ 未完成（兩次當機） |
+
+**黑畫面根因**：Remotion `OffthreadVideo` 的 `endAt` 以合成幀數計、不隨 `playbackRate` 換算，0.72× 慢放段 25 s 後無畫面。已修（`c2b5954`：移除 endAt、尾端 `<Freeze>`、加 `Demo` 獨立 composition）。
+
+**剩下一步（在 `video/remotion/` 執行，不要同時跑 Remotion）**：
+```bash
+ffmpeg -y -i out/final.mp4 -i out/demo_scene.mp4 -filter_complex \
+ "[0:v]trim=end_frame=3675,setpts=PTS-STARTPTS[a];[1:v]trim=end_frame=3018,setpts=PTS-STARTPTS[b];[0:v]trim=start_frame=6693,setpts=PTS-STARTPTS[c];[a][b][c]concat=n=3:v=1:a=0,subtitles=../assets/generated/06b.ass[v]" \
+ -map "[v]" -map 0:a -c:v libx264 -preset veryfast -threads 2 -crf 18 -pix_fmt yuv420p -c:a copy -movflags +faststart out/final_v2.mp4
+```
+驗證：`ffprobe` 總長 ≈ 289 s、8669 幀；抽 200／210／220 s 幀不黑；150 s 有 06b 字幕；`volumedetect` 140／180／200 s 有聲。完成後 `cp out/final_v2.mp4 ../out/mjmr_demo_video.mp4`；要傳給人看再出 CRF 24 預覽版（< 30 MB）。
+
+**若要改內容**：改 `narration.json` → `python tts.py`（只重生變動句）→ 複製 wav 到 `remotion/public/tts/` → 重建 `src/timeline.json` → `npm run render`（全片 45 分鐘；或只 render `Demo` composition 再用上面 ffmpeg 接回）。金鑰在 `video/.env`（gitignore）。
