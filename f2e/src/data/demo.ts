@@ -41,7 +41,7 @@ export function buildView(d: StageData) {
   const validation = d.s5?.summary ?? { sections_present: {}, citation_grounded: 0, citation_total: 0, gold_citations_recalled: [], gold_citations_missed: [], holding_match: false }
   const totals = { passed: report.checks.filter(c => c.pass).length, total: report.checks.length, failed: report.checks.filter(c => !c.pass).length }
   const sources = [
-    ...s3.statutes.map((s, i) => ({ id: `statutes[${i}]`, type: '法條', title: s.law, subtitle: `第 ${s.article} 條 · 版本 ${s.version_date ?? '—'}`, content: s.text, tag: '法條' })),
+    ...s3.statutes.map((s, i) => ({ id: `statutes[${i}]`, type: '法條', title: s.law, subtitle: `第 ${s.article} 條 · 版本 ${s.version_date ?? '—'}${s.note ? ' · ' + s.note : ''}`, content: s.text, tag: s.basis ? '歷史統計補充' : '法條' })),
     ...s3.precedents.map((s, i) => ({ id: `precedents[${i}]`, type: '判解', title: s.id, subtitle: `${s.topic ?? ''} · 相關度 ${s.score ?? '—'}`, content: s.excerpt, tag: '判解' })),
     ...s3.interpretations.map((s, i) => ({ id: `interpretations[${i}]`, type: '立法理由', title: s.id, subtitle: '立法理由', content: s.excerpt, tag: '立法理由' })),
     ...s3.similar_cases.map((s, i) => ({ id: `similar_cases[${i}]`, type: '相似案', title: `${s.id}${s.case_type ? ' ' + s.case_type : ''}`, subtitle: `${s.result} · 相關度 ${s.score ?? '—'}`, content: s.why_similar + (s.holding ? `　主文：${s.holding}` : ''), tag: s.result })),
