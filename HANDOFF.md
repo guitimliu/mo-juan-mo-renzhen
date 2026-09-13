@@ -148,12 +148,29 @@ commit 前跑過一輪 5 面向 × 2 反駁者的對抗審查（85 個 agent）�
 
 **黑畫面根因**：Remotion `OffthreadVideo` 的 `endAt` 以合成幀數計、不隨 `playbackRate` 換算，0.72× 慢放段 25 s 後無畫面。已修（`c2b5954`：移除 endAt、尾端 `<Freeze>`、加 `Demo` 獨立 composition）。
 
-**剩下一步（在 `video/remotion/` 執行，不要同時跑 Remotion）**：
+**剩下一步——改用分段、低記憶體作法（單一 filter_complex 版本讓機器當機三次，勿再用）**，在 `video/remotion/` 逐步執行，每步都是獨立小工作，可分次做：
 ```bash
-ffmpeg -y -i out/final.mp4 -i out/demo_scene.mp4 -filter_complex \
- "[0:v]trim=end_frame=3675,setpts=PTS-STARTPTS[a];[1:v]trim=end_frame=3018,setpts=PTS-STARTPTS[b];[0:v]trim=start_frame=6693,setpts=PTS-STARTPTS[c];[a][b][c]concat=n=3:v=1:a=0,subtitles=../assets/generated/06b.ass[v]" \
- -map "[v]" -map 0:a -c:v libx264 -preset veryfast -threads 2 -crf 18 -pix_fmt yuv420p -c:a copy -movflags +faststart out/final_v2.mp4
+# 0. 音軌（沿用 v1，含全部旁白）
+ffmpeg -y -i out/final.mp4 -vn -c:a copy out/audio.m4a
+# 1. 前段視訊 frame 0–3674（0–122.5 s）
+ffmpeg -y -i out/final.mp4 -an -vf "trim=end_frame=3675,setpts=PTS-STARTPTS" -c:v libx264 -preset veryfast -threads 1 -crf 18 -pix_fmt yuv420p out/partA.mp4
+# 2. Demo 段：修好的 demo_scene.mp4 燒 06b 字幕（字幕檔時間是主時間軸，需位移 -122.5 s；用 ass 的 Dialogue 時間減 122.5 或改用 setpts 前燒）
+python3 - <<'PY'
+import re
+s=open("../assets/generated/06b.ass",encoding="utf-8").read()
+def sh(m):
+    h,mi,se=m.group(1),m.group(2),m.group(3); t=int(h)*3600+int(mi)*60+float(se)-122.5
+    return f"{int(t//3600)}:{int(t%3600//60):02d}:{t%60:05.2f}"
+open("../assets/generated/06b_demo.ass","w",encoding="utf-8").write(re.sub(r"(\d):(\d\d):(\d\d\.\d\d)", sh, s))
+PY
+ffmpeg -y -i out/demo_scene.mp4 -an -vf "subtitles=../assets/generated/06b_demo.ass" -c:v libx264 -preset veryfast -threads 1 -crf 18 -pix_fmt yuv420p out/partB.mp4
+# 3. 後段視訊 frame 6693–end（223.1 s–）
+ffmpeg -y -i out/final.mp4 -an -vf "trim=start_frame=6693,setpts=PTS-STARTPTS" -c:v libx264 -preset veryfast -threads 1 -crf 18 -pix_fmt yuv420p out/partC.mp4
+# 4. 串接（同編碼，不重編碼，幾乎不吃記憶體）＋ 合音軌
+printf "file 'partA.mp4'\nfile 'partB.mp4'\nfile 'partC.mp4'\n" > out/concat.txt
+ffmpeg -y -f concat -safe 0 -i out/concat.txt -i out/audio.m4a -c copy -movflags +faststart out/final_v2.mp4
 ```
-驗證：`ffprobe` 總長 ≈ 289 s、8669 幀；抽 200／210／220 s 幀不黑；150 s 有 06b 字幕；`volumedetect` 140／180／200 s 有聲。完成後 `cp out/final_v2.mp4 ../out/mjmr_demo_video.mp4`；要傳給人看再出 CRF 24 預覽版（< 30 MB）。
+驗證：`ffprobe` 總長 ≈ 289 s；`ffmpeg -ss 205 -i out/final_v2.mp4 -frames:v 1 x.png` 不黑；150 s 有 06b 字幕；`-af volumedetect` 140／180／200 s 有聲。完成後 `cp out/final_v2.mp4 ../out/mjmr_demo_video.mp4`；要傳人看再出 CRF 24 預覽版（< 30 MB）。
+若仍當機：先 `docker stop $(docker ps -q)` 釋放記憶體，並檢查 `%UserProfile%\.wslconfig` 的 `memory=` 上限。
 
 **若要改內容**：改 `narration.json` → `python tts.py`（只重生變動句）→ 複製 wav 到 `remotion/public/tts/` → 重建 `src/timeline.json` → `npm run render`（全片 45 分鐘；或只 render `Demo` composition 再用上面 ffmpeg 接回）。金鑰在 `video/.env`（gitignore）。
