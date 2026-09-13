@@ -17,8 +17,10 @@ export const Page: React.FC<{ children: React.ReactNode; bg?: string }> = ({ chi
 export const Narration: React.FC<{ id: SegId; from?: number }> = ({ id, from = 0 }) => {
   const frame = useCurrentFrame();
   const n = nar(id); const total = sec(n.duration);
-  const parts = n.text.split(/(?<=[。！？])/).filter((s) => s.trim());
-  const weights = parts.map((p) => p.length); const sum = weights.reduce((a, b) => a + b, 0);
+  // 字幕顯示 subtitle（阿拉伯數字），每句時長權重用口白 text（中文數字，字數≈語音長度）；句數不一致時退回用字幕本身
+  const split = (t: string) => t.split(/(?<=[。！？])/).filter((s) => s.trim());
+  const spoken = split(n.text); const parts = split((n as { subtitle?: string }).subtitle ?? n.text);
+  const weights = (spoken.length === parts.length ? spoken : parts).map((p) => p.length); const sum = weights.reduce((a, b) => a + b, 0);
   const t = frame - from; let acc = 0; let cur = parts[parts.length - 1];
   for (let i = 0; i < parts.length; i++) { const w = (weights[i] / sum) * total; if (t < acc + w) { cur = parts[i]; break; } acc += w; }
   const visible = t >= 0 && t < total + 8;
@@ -51,7 +53,7 @@ export const Foot: React.FC<{ left: string; right?: string }> = ({ left, right }
 );
 export const Brand: React.FC = () => (
   <div style={{ position: "absolute", top: 40, right: 96, display: "flex", alignItems: "center", gap: 12, color: T.muted, fontSize: 20 }}>
-    <span style={{ width: 10, height: 10, borderRadius: 5, background: T.forest }} />墨卷莫認真 · 新北市 AI 黑客松 · 法制局
+    <span style={{ width: 10, height: 10, borderRadius: 5, background: T.forest }} />莫捲莫認真 · 新北市 AI 黑客松 · 法制局
   </div>
 );
 export const CountUp: React.FC<{ from: number; to: number; delay?: number; dur?: number; style?: React.CSSProperties }> = ({ from, to, delay = 0, dur = 40, style }) => {

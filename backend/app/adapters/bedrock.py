@@ -370,7 +370,7 @@ class BedrockExtract:
                 "\n\n=== 原處分書（OCR 全文）===\n" + (s1.get("disposition_text") or "（未上傳）") +
                 "\n\n=== OCR 備註 ===\n" + (s1.get("ocr_confidence_note") or "") +
                 "\n\n請依系統指示輸出 S2 JSON。")
-        events.progress("S2", "模型正在擷取案件摘要（訴願人、處分、日期、主張、爭點）…")
+        events.progress("S2", "AI 正在整理案件摘要（訴願人、處分、日期、主張、爭點）…")
         raw = await converse(self.client, self.model_id, [{"role": "user", "content": [{"text": user}]}],
                              system=EXTRACT_SYSTEM, max_tokens=2048)
         data = extract_json(raw)
@@ -636,7 +636,7 @@ class BedrockRetrieval:
         interp_chunks = await retrieve(self.agent_client, self.kb_id, query, "interpretation", k=6)
         events.progress("S3", f"函釋檢索完成（{len(interp_chunks)} 段）")
         dec_chunks = await retrieve(self.agent_client, self.kb_id, query, "decision", k=12)
-        events.progress("S3", f"歷史決定書檢索完成（{len(dec_chunks)} 段），模型篩選中…")
+        events.progress("S3", f"歷史決定書檢索完成（{len(dec_chunks)} 段），AI 篩選相關度中…")
 
         precedents = [precedent_entry(d) for d in group_by_doc(prec_chunks)[:3]]
         interpretations = [interpretation_entry(d) for d in group_by_doc(interp_chunks)[:3]]
@@ -760,6 +760,23 @@ PROCEDURE_STATUTES = {            # S2.5 規則 → 決定書會引用的條文�
 }
 
 
+# 模型偶爾把內部欄位名／階段代號寫進給承辦人看的文字（gaps）；後處理換成白話（提示詞已禁止，這是保險）
+_JARGON = [
+    (r"S2\.uncertain\s*(記載|列出|標記|顯示)?", "資料擷取時無法確定："), (r"S2\.5\s*程序檢核", "程序檢核"), (r"S2_5", "程序檢核"),
+    (r"\bS1\b", "文字辨識"), (r"\bS2\b", "案件資料擷取"), (r"\bS3\b", "法源檢索"), (r"\bS4\b", "草稿生成"), (r"\bS5\b", "檢核"),
+    (r"service_method", "送達方式"), (r"served_date", "送達日期"), (r"petition_filed_date", "提起日期"), (r"legal_basis", "處分依據"),
+    (r"doc_no", "文號"), (r"appellant_claims", "訴願主張"), (r"facts_by_agency", "機關認定事實"), (r"case_type", "案由"),
+    (r"needs_review", "需人工確認"), (r"defect_flags", "記載瑕疵"), (r"admissible", "程序合法"), (r"citations?", "引用"),
+    (r"[「『]?unknown[」』]?", "不明"), (r"[「『]?null[」』]?", "空白"), (r"\(送達方式\)", ""), (r"（送達方式）", ""),
+]
+
+
+def humanize(text: str) -> str:
+    for pat, rep in _JARGON:
+        text = re.sub(pat, rep, text)
+    return re.sub(r"[ \t]{2,}", " ", text).strip()
+
+
 def add_procedure_statutes(s3: dict, s2_5: dict) -> list[str]:
     """S3 在 S2.5 之後才跑但拿不到它，所以程序法條在這裡補：只補「沒過」的規則對應條文，精確查 statutes.json，
     直接 append 進 s3["statutes"]（同一個 dict＝envelope 的 S3），citations 的 statutes[i] 才對得上。回傳補了哪些。"""
@@ -805,9 +822,11 @@ class BedrockGenerate:
             "用到立法理由時寫「立法理由第N點」並引其原文；用到法條時寫「○○法第N條第N項」。\n"
             "- 理由「二、」卷證涵攝要點出 S2.evidence 列的卷內證據（例：「此有…筆錄、…對話紀錄影本附卷可稽」）。\n"
             "- 理由「三、」逐一回應 S2.appellant_claims 每一點；主張受騙／不知情時，要分別討論：是否為但書「正當理由」、是否對構成要件毫無認識（依證據判斷有無警覺）、縱非故意是否有過失（行政罰法第7條第1項，若在檢索結果內）。\n"
+            "- gaps 是寫給承辦人看的待補查清單：用白話中文描述要核對什麼、去哪裡核對；**不得出現內部欄位名或階段代號**"
+            "（例如 S1／S2／S2.5／S3、uncertain、service_method、unknown、legal_basis），一律改寫成「資料擷取時無法確定」「送達方式」「不明」「處分依據」等中文。\n"
             "只輸出 S4 JSON（header, holding, facts, reasons[], instruction, citations[], gaps[]），不要 markdown 圍欄。",
         ])
-        events.progress("S4", f"模型依「{decision['version']}」骨架生成中…")
+        events.progress("S4", f"AI 依「{decision['version']}」版本撰寫草稿中…")
         raw = await converse(self.client, self.model_id, [{"role": "user", "content": [{"text": user}]}],
                              system=generate_system_prompt(), max_tokens=GENERATE_MAX_TOKENS, stream_stage="S4")
         draft = extract_json(raw)
@@ -828,7 +847,7 @@ class BedrockGenerate:
         }
         # citations／gaps：與 stub 同一套後處理，只認檢索結果裡有的（模型自己寫的 citations 不採信）
         draft["citations"] = _stub.build_citations(draft, s3)
-        model_gaps = [str(g) for g in (draft.get("gaps") or []) if str(g).strip()]
+        model_gaps = [humanize(str(g)) for g in (draft.get("gaps") or []) if str(g).strip()]
         draft["gaps"] = _stub.find_gaps(draft, s3) + [g for g in model_gaps if g not in _stub.find_gaps(draft, s3)]
         draft["outcome"] = decision
         draft["provenance"] = f"bedrock：{resolve_model(self.model_id)} 生成；主文／教示／表頭由規則覆寫，citations 由本文比對檢索結果產生"
