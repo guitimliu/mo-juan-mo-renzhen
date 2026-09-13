@@ -138,7 +138,7 @@ async function switchDraft(version: number) {
     notify(error instanceof ApiError ? error.message : '切換版本失敗')
   }
 }
-const piiLabel = computed(() => pii.value ? `已去識別化（${pii.value.mode === 'pseudonym' ? '取代法' : pii.value.mode}）：${Object.entries(pii.value.replaced || {}).filter(([, n]) => n).map(([k, n]) => `${({ name: '姓名', id: '身分證', phone: '電話', address: '地址', dob: '生日' } as Record<string, string>)[k] || k}×${n}`).join('、')}` : '')
+const piiLabel = computed(() => pii.value ? `個資已遮罩（${pii.value.mode === 'pseudonym' ? '以代號取代' : pii.value.mode}）：${Object.entries(pii.value.replaced || {}).filter(([, n]) => n).map(([k, n]) => `${({ name: '姓名', id: '身分證', phone: '電話', address: '地址', dob: '生日' } as Record<string, string>)[k] || k}×${n}`).join('、')}` : '')
 const sources = computed(() => view.value.sources)
 const draft = computed(() => view.value.draft)
 const checks = computed(() => view.value.checks)

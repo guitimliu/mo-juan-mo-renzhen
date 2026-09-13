@@ -5,7 +5,7 @@ import type { CaseEnvelope, CheckItem, S1, S2, S25, S3, S4, S5 } from '../api'
 export const showDeveloperChecks = false
 export const steps = [
   { title: '文件上傳', short: '上傳', icon: 'upload', description: '匯入案件文件，開始審查流程' },
-  { title: 'OCR 辨識', short: 'OCR 對照', icon: 'scan', description: '對照原始文件與辨識文字' },
+  { title: '文字辨識（OCR）', short: '文字對照', icon: 'scan', description: '對照原始文件與辨識出的文字，確認姓名、日期與主張' },
   { title: '程序檢核', short: '程序檢核', icon: 'shield', description: '確認案件程序與需人工複核的項目' },
   { title: '法源檢索', short: '法源檢索', icon: 'search', description: '檢視法條、判解、立法理由與相似訴願案件' },
   { title: '決定書草稿', short: '草稿生成', icon: 'edit', description: '逐段核對草稿內容，讓每一份引用都有依據' },
