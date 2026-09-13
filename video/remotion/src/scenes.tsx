@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, Img, OffthreadVideo, Sequence, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Freeze, Img, OffthreadVideo, Sequence, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { T } from "./theme";
 import { Brand, CountUp, Eyebrow, FadeIn, FONT, Foot, H1, Narration, Page } from "./ui";
 import { DEMO_SEGMENTS, DEMO_TAIL, demoSegFrames, nar, sec } from "./timeline";
@@ -170,12 +170,15 @@ export const Demo: React.FC = () => {
         const from = acc; acc += demoSegFrames[i];
         return (
           <Sequence key={i} from={from} durationInFrames={demoSegFrames[i]} layout="none">
-            <OffthreadVideo src={staticFile("video/demo_cfr.mp4")} startFrom={sec(s.from)} endAt={sec(s.to)} playbackRate={s.rate} muted style={{ width: 1920, height: 1080, objectFit: "cover" }} />
+            {/* 不用 endAt：它以合成幀數計，不隨 playbackRate 換算，慢放時會提早變黑；Sequence 長度已限制播放區間 */}
+            <OffthreadVideo src={staticFile("video/demo_cfr.mp4")} startFrom={sec(s.from)} playbackRate={s.rate} muted style={{ width: 1920, height: 1080, objectFit: "cover" }} />
           </Sequence>
         );
       })}
       <Sequence from={acc} durationInFrames={DEMO_TAIL} layout="none">
-        <OffthreadVideo src={staticFile("video/demo_cfr.mp4")} startFrom={sec(162.5)} endAt={sec(163.5)} playbackRate={0.05} muted style={{ width: 1920, height: 1080, objectFit: "cover" }} />
+        <Freeze frame={0}>
+          <OffthreadVideo src={staticFile("video/demo_cfr.mp4")} startFrom={sec(162.8)} muted style={{ width: 1920, height: 1080, objectFit: "cover" }} />
+        </Freeze>
       </Sequence>
       {/* 左上狀態標籤 */}
       <div style={{ position: "absolute", top: 26, left: 26, display: "flex", gap: 10, alignItems: "center" }}>

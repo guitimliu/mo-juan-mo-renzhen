@@ -22,4 +22,6 @@ video/
 ## 注意
 - Playwright 錄下的 webm 時間軸會拉伸（164 s vs 實際 154 s），`src/timeline.ts` 的 `DEMO_SEGMENTS` 是用影片畫面差異定位的秒數；重錄後要重新定位（`ffmpeg -vf "select='gt(scene,0.08)',showinfo"` 或每 0.5 s 抽幀算差異）。
 - 字幕依句號切段、按字數比例排時間。
+- `OffthreadVideo` **不要用 `endAt`**：它以合成幀數計、不隨 `playbackRate` 換算，慢放段會提早變黑（v1 的 3:23–3:43 黑畫面就是這個）；用外層 `Sequence` 的 `durationInFrames` 限制區間，定格用 `<Freeze>`。
+- 只重做 Demo 段：`npx remotion render src/index.tsx Demo out/demo_scene.mp4 --muted`，再用 ffmpeg `trim`/`concat` 換掉主片 frame 3675–6693 的視訊、音軌沿用。
 - 聲線：Leda（選定）；試聽過 Zephyr、Aoede、Puck。改 `narration.json` 的 `voice` 後 `python tts.py --force`。
