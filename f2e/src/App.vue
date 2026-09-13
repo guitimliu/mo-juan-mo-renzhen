@@ -4,6 +4,7 @@ import Icon from './components/AppIcon.vue'
 import DocumentZoom from './components/DocumentZoom.vue'
 import ProcessingStatus from './components/ProcessingStatus.vue'
 import LoginPanel from './components/LoginPanel.vue'
+import { parseRocDate } from './rocDate'
 import { showDeveloperChecks, steps, empty, buildView, stagesFrom } from './data/demo'
 import { ApiError, createCase, getCase, getHealth, sleep, fetchDemoFiles, getToken, setToken, onUnauthorized, openCaseSocket, POLL_INTERVAL_MS, POLL_FALLBACK_MS, POLL_TIMEOUT_MS, type CaseEnvelope, type CaseEvent, type CaseSocket } from './api'
 
@@ -40,6 +41,33 @@ const caseTitle = computed(() => summary.value.case_type || '待匯入案件文�
 const reportNote = computed(() => view.value.failedItems.length ? `請確認以下未通過項目：${view.value.failedItems.join('；')}。` : '請逐項核對草稿內容與引用依據。')
 
 const active = ref(0)
+const topbar = ref<HTMLElement | null>(null)
+const topbarHeight = ref(66)
+const fontSizes = [{ label: '標準', value: 14 }, { label: '大', value: 16 }, { label: '特大', value: 18 }]
+const fontSize = ref(14)
+try {
+  const saved = Number(localStorage.getItem('workspace-font-size'))
+  if (fontSizes.some(size => size.value === saved)) fontSize.value = saved
+} catch { /* Storage is optional. */ }
+watch(fontSize, value => {
+  document.documentElement.style.fontSize = value + 'px'
+  try { localStorage.setItem('workspace-font-size', String(value)) } catch { /* Keep the session preference. */ }
+}, { immediate: true })
+let topbarObserver: ResizeObserver | undefined
+watch(topbar, element => {
+  topbarObserver?.disconnect()
+  if (!element) return
+  const measure = () => { topbarHeight.value = element.getBoundingClientRect().height }
+  measure()
+  topbarObserver = new ResizeObserver(measure)
+  topbarObserver.observe(element)
+}, { flush: 'post' })
+onUnmounted(() => topbarObserver?.disconnect())
+function goToWorkspace() {
+  active.value = 0
+  window.scrollTo({ top: 0, behavior: 'instant' })
+}
+const pipelineNav = ref<HTMLElement | null>(null)
 const selectedSource = ref('statutes[0]')
 const filter = ref('全部')
 const NO_SOURCE = { id: '', type: '', title: '尚無檢索來源', subtitle: '', content: '', tag: '' }
@@ -49,6 +77,14 @@ const ready = ref(false)
 
 const running = ref(false)
 const progress = ref(0)
+watch([active, progress, running], async () => {
+  await nextTick()
+  const nav = pipelineNav.value
+  const current = nav?.querySelector<HTMLElement>('[aria-current="step"]')
+  if (!nav || !current || nav.scrollWidth <= nav.clientWidth) return
+  const left = current.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft
+  nav.scrollTo({ left: left - (nav.clientWidth - current.offsetWidth) / 2, behavior: 'instant' })
+})
 const processingVisible = ref(false)
 const processingComplete = ref(false)
 const elapsed = ref(0)
@@ -58,6 +94,8 @@ const files = ref<(File | null)[]>([null, null])
 const previews = ref<string[]>(['', ''])
 
 const serviceDate = ref('')
+const serviceDateIso = computed(() => parseRocDate(serviceDate.value))
+const serviceDateError = computed(() => serviceDateIso.value === null ? '請輸入有效的民國年月日，例如 113/01/31。' : '')
 const documentIndex = ref(0)
 const expanded = ref('理由（三）')
 const sourceDetail = ref<HTMLElement | null>(null)
@@ -245,6 +283,11 @@ function failRun(message: string) {
 }
 async function runDemo() {
   if (running.value) return
+  if (serviceDateError.value) {
+    notify(serviceDateError.value)
+    document.getElementById('service-date')?.focus()
+    return
+  }
   const [petition, disposition] = files.value
   if (!petition || !disposition) return notify('請先選擇訴願書與原處分書兩份圖片')
   const myRun = ++run
@@ -288,7 +331,7 @@ async function runDemo() {
   try {
     await refreshHealth()
     if (myRun !== run) return
-    const { case_id } = await createCase(petition, disposition, serviceDate.value || undefined)
+    const { case_id } = await createCase(petition, disposition, serviceDateIso.value || undefined)
     if (myRun !== run) return
     caseId.value = case_id
     progress.value = 1
@@ -360,30 +403,31 @@ onUnmounted(() => { window.removeEventListener('beforeunload', warnBeforeLeaving
 
 <template>
   <LoginPanel v-if="showLogin" @done="onLoggedIn" />
-  <div v-else class="workspace">
+  <div v-else class="workspace" :style="{ '--topbar-height': topbarHeight + 'px' }">
     <aside class="sidebar">
       <a class="brand" href="#" @click.prevent="active = 0"><span class="brand-symbol"><Icon name="scales" :size="25" /></span><span>訴願審查助手<small>智慧案件審查工作台</small></span></a>
       <div class="workspace-label">法制局工作空間</div>
       <button class="nav-main" @click="active = ready ? 1 : 0"><Icon name="grid" />案件工作台<span class="nav-dot"></span></button>
       <a class="nav-main nav-link" :href="slidesUrl" target="_blank" rel="noopener" title="開新分頁檢視專案簡報"><Icon name="book" />專案簡報<Icon name="arrow" :size="14" /></a>
       <div class="side-divider"></div>
-      <div class="side-heading">目前案件 <span>01</span></div>
+      <div class="side-heading case-list-heading">案件列表 <button class="new-case" title="新建案件" aria-label="新建案件" :disabled="running || exporting || demoLoading" @click="requestCase('new')"><Icon name="plus" :size="18" /></button></div>
       <button class="case-nav" @click="active = ready ? 1 : 0"><Icon name="file" /><span><b>{{ caseLabel }}</b><small>{{ caseTitle }}</small></span></button>
-      <div class="side-heading flow-heading">審查流程</div>
-      <nav aria-label="審查流程"><button v-for="(step, i) in steps" :key="step.title" class="side-step" :class="{ selected: active === i }" :disabled="!stepAvailable(i)" @click="active = i"><Icon :name="step.icon" :size="18" /><span>{{ step.title }}</span><span v-if="stepAvailable(i) && i !== active" class="little-dot"></span><span v-else-if="i === 4 && ready" class="little-dot"></span></button></nav>
-      <div class="side-bottom"><div class="user"><span class="avatar">{{ (currentUser || 'E').slice(0, 1).toUpperCase() }}</span><span>{{ currentUser || '案件工作空間' }}</span><button v-if="authRequired" class="logout" title="登出" @click="logout"><Icon name="arrow" :size="14" /></button><span v-else class="online"></span></div></div>
+      <div class="side-bottom"><div class="user"><span class="avatar">{{ (currentUser || 'E').slice(0, 1).toUpperCase() }}</span><span>{{ currentUser || '案件工作空間' }}</span><button v-if="authRequired" class="logout" title="登出" aria-label="登出" @click="logout"><Icon name="logout" :size="16" /><span>登出</span></button><span v-else class="online"></span></div></div>
     </aside>
 
     <div class="main-shell">
-      <header class="topbar"><div class="breadcrumb">案件工作台 <Icon name="chevron" :size="13" /><span>{{ caseLabel }}</span></div><div class="topbar-right"><Icon name="scales" :size="18" /><span>新北市政府法制局</span></div></header>
+      <header ref="topbar" class="topbar">
+        <nav class="breadcrumb" aria-label="麵包屑"><a href="#workspace" @click.prevent="goToWorkspace">案件工作台</a><Icon name="chevron" :size="13" /><a href="#current-case" @click.prevent="goToWorkspace">{{ caseLabel }}</a></nav>
+        <div class="topbar-right"><div class="font-controls" role="group" aria-label="調整字級"><span>字級</span><button v-for="size in fontSizes" :key="size.value" :aria-pressed="fontSize === size.value" @click="fontSize = size.value">{{ size.label }}</button></div><span class="organization"><Icon name="scales" :size="18" />新北市政府法制局</span></div>
+      </header>
       <main>
-        <div class="page-title"><div><div class="case-eyebrow">{{ ready || running ? `案件 ${caseLabel}` : '建立新案件' }} <span>行政訴願</span></div><h1>{{ ready || running ? caseTitle : '開始一份新的案件審查' }}</h1><p><span>訴願人 {{ summary.appellant.name || '待辨識' }}</span><i></i><span>原處分機關 {{ summary.agency || '待辨識' }}</span><i></i><span class="status-text"><span></span>{{ running ? '分析中' : ready ? '草稿待審閱' : '等待文件' }}</span></p></div><button class="button secondary" :disabled="running || exporting || demoLoading" @click="requestCase('new')"><Icon name="plus" :size="17" />新建案件</button></div>
+        <div class="page-title"><div><div class="case-eyebrow">{{ ready || running ? `案件 ${caseLabel}` : '建立新案件' }} <span>行政訴願</span></div><h1>{{ ready || running ? caseTitle : '開始一份新的案件審查' }}</h1><p><span>訴願人 {{ summary.appellant.name || '待辨識' }}</span><i></i><span>原處分機關 {{ summary.agency || '待辨識' }}</span><i></i><span class="status-text"><span></span>{{ running ? '分析中' : ready ? '草稿待審閱' : '等待文件' }}</span></p></div></div>
 
 
 
 
 
-        <nav class="pipeline" aria-label="案件處理階段" :aria-busy="running"><button v-for="(step, i) in steps" :key="step.title" :class="{ current: running ? progress === i : active === i, done: running && i < progress }" :aria-current="(running ? progress === i : active === i) ? 'step' : undefined" :disabled="!stepAvailable(i)" @click="active = i"><span class="step-number"><Icon v-if="running && i < progress" name="check" :size="15" /><template v-else>{{ String(i + 1).padStart(2, '0') }}</template></span><span>{{ step.short }}<small>{{ stepStatus(i) }}</small></span><Icon v-if="i < steps.length - 1" class="step-chevron" name="chevron" :size="14" /></button></nav>
+        <nav ref="pipelineNav" class="pipeline" aria-label="案件處理階段" :aria-busy="running"><button v-for="(step, i) in steps" :key="step.title" :class="{ current: running ? progress === i : active === i, done: running && i < progress }" :aria-current="(running ? progress === i : active === i) ? 'step' : undefined" :disabled="!stepAvailable(i)" :aria-label="step.short + '：' + stepStatus(i)" @click="active = i"><span class="step-number"><Icon v-if="running && i < progress" name="check" :size="15" /><template v-else>{{ String(i + 1).padStart(2, '0') }}</template></span><span>{{ step.short }}</span><Icon v-if="i < steps.length - 1" class="step-chevron" name="chevron" :size="14" /></button></nav>
 
         <div class="section-heading"><div><h2 ref="sectionTitle" tabindex="-1">{{ steps[active]!.title }} <span v-if="active === 4" class="tag">初稿 v1</span></h2><p>{{ steps[active]!.description }}</p></div><div v-if="ready && active === 4" class="export-actions"><button class="button primary" :disabled="exporting" @click="downloadDraft()"><Icon name="download" :size="17" />{{ exporting ? '匯出中…' : '匯出 PDF' }}</button><button class="button secondary" :disabled="exporting" @click="downloadDraft('docx')">匯出 Word</button></div></div>
 
@@ -394,8 +438,9 @@ onUnmounted(() => { window.removeEventListener('beforeunload', warnBeforeLeaving
 <div v-if="!processingVisible" class="service-date-field">
   <div class="service-date-heading"><label for="service-date">送達日期 <span>（選填）</span></label></div>
   <p id="service-date-help">請依原處分的送達證明填寫；不確定可先留空，後續由承辦人核對。</p>
-  <div class="service-date-control"><input id="service-date" v-model="serviceDate" type="date" :disabled="running" aria-describedby="service-date-help service-date-note" /><button v-if="serviceDate" class="button secondary" :disabled="running" @click="serviceDate = ''">清除日期</button></div>
-  <small id="service-date-note">請選擇西元日期（例如民國 113 年為西元 2024 年）。</small>
+  <div class="service-date-control"><input id="service-date" v-model="serviceDate" type="text" placeholder="113/01/31" maxlength="9" :disabled="running" :aria-invalid="!!serviceDateError" aria-describedby="service-date-help service-date-note service-date-error" /><button v-if="serviceDate" class="button secondary" :disabled="running" @click="serviceDate = ''">清除日期</button></div>
+  <small id="service-date-note">請輸入民國年/月/日，例如 113/01/31（民國 113 年 1 月 31 日）；不確定可留空。</small>
+  <p v-if="serviceDateError" id="service-date-error" class="service-date-error" role="status">{{ serviceDateError }}</p>
 </div>
           <section v-if="!processingVisible" class="panel upload-panel"><div class="panel-title"><Icon name="upload" /><h3>匯入案件文件</h3><span class="tag">2 份必要文件</span></div><p class="muted">請上傳清晰的訴願書與原處分書影像。</p><div class="upload-grid"><div v-for="(label, i) in ['訴願書', '原處分書']" :key="label" class="upload-item"><label class="upload-zone" :class="{ 'has-error': fileErrors[i], 'has-file': files[i] }"><input type="file" :aria-label="'選擇' + label + '圖片'" :aria-invalid="!!fileErrors[i]" :aria-describedby="'upload-feedback-' + i" accept="image/jpeg,image/png,image/webp" :disabled="running" @change="selectFile($event, i)" /><img v-if="previews[i]" :src="previews[i]" :alt="label + '預覽'" /><Icon v-else name="upload" :size="30" /><b>{{ label }}</b><span>{{ fileNames[i] }}</span><small>{{ files[i] ? '已選擇 · 點選可更換圖片' : '點選選擇圖片' }} · JPG / PNG / WebP · 上限 10 MB</small><span :id="'upload-feedback-' + i" class="upload-feedback" :class="{ 'field-error': fileErrors[i] }" aria-live="polite">{{ fileErrors[i] || (files[i] ? '圖片已備妥' : '尚未選擇圖片') }}</span></label><button v-if="files[i]" class="button secondary remove-file" :disabled="running || exporting || demoLoading" @click="removeFile(i)">移除{{ label }}</button></div></div>
 <div class="demo-file-actions"><button class="button secondary" :disabled="running || exporting || demoLoading" @click="requestCase('demo')"><Icon name="file" :size="17" />{{ demoLoading ? '載入中…' : '載入 Demo 文件' }}</button><button class="button secondary" :disabled="running || exporting || demoLoading" @click="requestCase('demo-run')"><Icon name="spark" :size="17" />一鍵 Demo（載入並分析）</button></div><div class="panel-actions upload-actions"><p id="upload-hint" role="status">{{ uploadHint }}</p><button class="button primary" :disabled="running || demoLoading || !canAnalyze" aria-describedby="upload-hint" @click="runDemo"><Icon name="spark" :size="17" />{{ running ? '分析中…' : '開始分析' }}</button></div></section>
@@ -423,8 +468,8 @@ onUnmounted(() => { window.removeEventListener('beforeunload', warnBeforeLeaving
           <section class="panel quality-panel"><div class="quality-summary"><span class="quality-icon"><Icon name="shield" :size="32" /></span><div><h3>{{ reviewed ? '已完成審閱' : report.checks.length ? '與標準答案比對，讓差異清楚可見' : '尚未取得檢核結果' }}</h3><p>{{ totals.passed }} 項通過，{{ totals.failed }} 項未通過 · 論理要點 {{ report.score['論理要點'] }}</p></div><span class="quality-score">{{ totals.passed }}<span>/ {{ totals.total }}</span></span></div><div class="comparison-note info-bar">{{ reportNote }}</div><div class="comparison-grid"><div><h4>本次檢索已涵蓋</h4><p v-for="name in validation.gold_citations_recalled" :key="name"><Icon name="check" :size="14" />{{ name }}</p></div><div><h4>正本引用但未檢索到</h4><p v-for="name in validation.gold_citations_missed" :key="name"><Icon name="info" :size="14" />{{ name }}</p></div></div><details v-for="group in ['段落', '格式', '結論', '事實', '引用', '論理', '防幻覺']" :key="group" class="report-group" :open="group === '結論' || group === '防幻覺'"><summary>{{ group }}<span class="tag">{{ report.score[group as keyof typeof report.score] }}</span></summary><div class="check-row" v-for="item in report.checks.filter(c => c.group === group)" :key="item.item"><span class="check-symbol" :class="{ warning: !item.pass }"><Icon :name="item.pass ? 'check' : 'info'" /></span><div><h3>{{ item.item }}</h3><p v-if="item.note">{{ item.note }}</p></div><span :class="['tag', item.pass ? 'green' : 'amber']">{{ item.pass ? '通過' : '未通過' }}</span></div></details><div class="quality-confirm"><label><input type="checkbox" v-model="reviewed" />我已檢視此示範草稿，了解法律內容與救濟教示仍需人工核對。</label><button class="button primary" :disabled="!reviewed || exporting" @click="downloadDraft()"><Icon name="download" :size="17" />下載示範草稿</button></div></section>
 
         </template>
-        <nav v-if="ready && active > 0" class="step-actions" aria-label="步驟導覽"><button class="button secondary" @click="active--">上一步：{{ steps[active - 1]!.title }}</button><span>第 {{ active + 1 }} / {{ steps.length }} 步 · 結果仍需人工核對</span><button v-if="active < steps.length - 1" class="button primary" @click="active++">下一步：{{ steps[active + 1]!.title }} <Icon name="arrow" :size="16" /></button><button v-else class="button primary" :disabled="exporting" @click="downloadDraft()">{{ exporting ? '匯出中…' : '匯出草稿 PDF' }}</button></nav>
-        <footer class="page-footer"><span><Icon name="scales" :size="14" />訴願審查助手 · 讓審查更有依據</span><span>新北市政府法制局</span></footer>
+        <nav v-if="ready && active > 0" class="step-actions" aria-label="步驟導覽"><button class="button secondary" @click="active--">上一步：{{ steps[active - 1]!.title }}</button><span>第 {{ active + 1 }} / {{ steps.length }} 步</span><button v-if="active < steps.length - 1" class="button primary" @click="active++">下一步：{{ steps[active + 1]!.title }} <Icon name="arrow" :size="16" /></button><button v-else class="button primary" :disabled="exporting" @click="downloadDraft()">{{ exporting ? '匯出中…' : '匯出草稿 PDF' }}</button></nav>
+        <footer class="page-footer"><span><Icon name="scales" :size="14" />訴願審查助手 · 讓審查更有依據</span></footer>
       </main>
     </div>
     <dialog ref="confirmDialog" class="case-confirm" aria-labelledby="confirm-title" aria-describedby="confirm-description" @close="restoreActionFocus"><h2 id="confirm-title">{{ pendingAction === 'new' ? '建立新案件？' : '以 Demo 文件取代目前內容？' }}</h2><p id="confirm-description">目前選擇的圖片、送達日期與審閱狀態將會清除。若要保留目前操作，請選擇繼續編輯。</p><div class="confirm-actions"><button ref="cancelButton" class="button secondary" @click="confirmDialog?.close()">繼續編輯</button><button class="button primary" @click="confirmCase">{{ pendingAction === 'new' ? '清除並新建案件' : pendingAction === 'demo-run' ? '取代並開始分析' : '取代並載入文件' }}</button></div></dialog>
