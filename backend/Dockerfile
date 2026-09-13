@@ -5,7 +5,7 @@ WORKDIR /app/backend
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY data/poc /app/data/poc
-COPY data/statutes.json data/precedents.json data/petitions.jsonl /app/data/
+COPY data/statutes.json data/precedents.json data/petitions.jsonl data/law_index.json data/decisions_slim.jsonl.gz /app/data/
 COPY backend/app ./app
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2).status == 200 else 1)"

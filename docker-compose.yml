@@ -10,10 +10,29 @@ services:
         required: false
     environment:
       ADAPTER: ${ADAPTER:-stub}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://mjmr:${POSTGRES_PASSWORD:-mjmr}@db:5432/mjmr}   # 案件／影像／草稿持久化（app/db.py）；設空字串＝純記憶體
       STUB_STAGE_DELAY_S: ${STUB_STAGE_DELAY_S:-1.5}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${FRONTEND_PORT:-8080},http://localhost:5173}   # 部署到雲端時在 .env 填公開網址（走 nginx 同源代理時其實用不到）
     ports:
       - "${BACKEND_PORT:-8000}:8000"   # 直接 curl 後端用；前端不靠這個
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mjmr
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mjmr}
+      POSTGRES_DB: mjmr
+    volumes:
+      - pgdata:/var/lib/postgresql/data    # docker compose down 不會清；要清用 down -v
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mjmr -d mjmr"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
   frontend:
@@ -34,3 +53,6 @@ services:
     build:
       context: ./slides           # Slidev build --base /slides/ → nginx；前端 nginx 反向代理 /slides/ 過來
     restart: unless-stopped
+
+volumes:
+  pgdata:
