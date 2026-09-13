@@ -166,3 +166,15 @@ ffmpeg -y -f concat -safe 0 -i out/concat.txt -i out/audio.m4a -c copy -movflags
 若仍當機：先 `docker stop $(docker ps -q)` 釋放記憶體，並檢查 `%UserProfile%\.wslconfig` 的 `memory=` 上限。
 
 **若要改內容**：改 `narration.json` → `python tts.py`（只重生變動句）→ 複製 wav 到 `remotion/public/tts/` → 重建 `src/timeline.json` → `npm run render`（全片 45 分鐘；或只 render `Demo` composition 再用上面 ffmpeg 接回）。金鑰在 `video/.env`（gitignore）。
+
+## §VI 歷史決定書擴充（2026-09-13 上午，aws-test session）
+
+- **資料**：法制局網站 26,607 篇訴願決定書（2004–2026/09）已抓回（官方同意；`backend/tools/crawl_ntpc_appeals.py`，13 分鐘）。原始資料在本機 `data/ntpc_appeals/`（gitignore，810 MB raw + 188 MB `decisions.jsonl`）；repo 內有精簡版 `data/decisions_slim.jsonl.gz`（10.6 MB，`tools/build_decisions_slim.py`）與法條索引 `data/law_index.json`（`tools/analyze_ntpc_appeals.py`）。
+- **分析**：`docs/ntpc_appeals_analysis.md`（量化：年度／案型／機關／條文／77 條款次／洗防法 757 篇）、`docs/ntpc_appeals_qualitative.md`（Codex 對 64 篇樣本的駁回骨架、撤銷理由分類、檢索優先序、生成規則）。發現：網站「相關法條」欄位只列程序法，實體條文要從全文抽；`statutes.json` 缺很多高頻法規全文（環境教育法、都市計畫法、土地稅法、社會救助法…，見分析 §4.1）。
+- **後端（已接、測試 132 綠、bedrock 端到端 110 s／S5 27/31）**：
+  - `app/law_index.py`：案由 → 同案型歷史高頻實體條文；`statutes_for()` 追加（`basis: 歷史決定書統計`、`note: 同案型 N 篇中 M% 引用`）；S3 多 `history` 欄位（篇數＋裁決分布），`note` 也帶。
+  - `app/decisions.py`：精簡索引；KB 撈回的網站版決定書（metadata `doc_no`＝案號）由 `historical_entry()` 補主文／機關／日期／案型／網址；`own_case_ids()` 也會排除網站版的本案（demo 113-16 ＝ 網站 1137101298，已驗證兩者都排除）。
+- **KB**：26,607 篇已 `tools/export_ntpc_appeals_kb.py` → `s3://mo-juan-mo-renzhen-kb-text/新北訴願決定書/<年>/<案號>.txt`（metadata `source=ntpc_web`、`doc_no`=案號、`year` 民國、`case_type`、`outcome`、`agency`、`issued`）；ingestion job `OB93DQMTUE` 於 10:47 啟動（26,748 掃描、37 失敗、進行中）。完成後相似案會大量來自網站版；主辦方 141 篇與網站版重複的案子可能同時出現（不同 id），之後可用 `decisions_slim` 的 `doc_no` 去重。
+- **前端待接**：S3 `history`（「歷史同案型 757 篇：駁回 43%…」）與法條 `basis/note`、相似案 `source` 內的網址。
+- **儲存層可行性**（承辦人回頭編輯同一案）：`docs/persistence_design.md`——建議 SQLite + volume + 版本化草稿 API，PII 對照表不落地；估 3–4 小時。
+- 憑證：`.env` 已換 2026-09-13 上午的 token（仍是臨時 ASIA…）；EC2 `i-041e003416dd15245`（us-west-2）上的 `.env` 要組員同步換；掛 IAM role 的做法寫在對話紀錄，Workshop 帳戶未必允許。

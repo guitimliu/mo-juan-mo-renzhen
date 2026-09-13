@@ -25,7 +25,7 @@ import re
 import time
 from functools import lru_cache
 
-from .. import events, law_index, rules, settings
+from .. import decisions, events, law_index, rules, settings
 from . import stub as _stub   # 只借讀檔工具（statutes_table／petitions），不用它的假資料
 from .base import UploadedImage
 
@@ -513,7 +513,7 @@ def own_case_ids(s2: dict) -> set[str]:
         blob = json.dumps(row.get("原處分") or {}, ensure_ascii=False)
         if any(d in blob for d in digits):
             own.add(cid)
-    return own
+    return own | decisions.own_by_disposition(digits)     # 26,607 篇歷史決定書也要排除
 
 
 def similar_entry(doc: dict) -> dict | None:
@@ -521,12 +521,25 @@ def similar_entry(doc: dict) -> dict | None:
     cid = str(md.get("doc_no") or "")
     row = _stub.petitions().get(cid)
     if not row:
-        return None
+        return historical_entry(cid, doc)
     return {
         "id": cid, "result": row["裁決類別"], "why_similar": "", "score": round(doc["score"], 3),
         "holding": row.get("主文"), "agency": (row.get("角色") or {}).get("原處分機關"), "decided": row.get("發文日期"),
         "case_type": row.get("案件類型"), "gist": row.get("要旨"),
         "excerpt": _clean_excerpt(doc["text"]), "source": row.get("來源檔") or _source(doc),
+    }
+
+
+def historical_entry(eano: str, doc: dict) -> dict | None:
+    """KB 裡來自法制局網站的決定書（metadata.doc_no＝案號）→ 用精簡索引補欄位。"""
+    d = decisions.get(eano)
+    if not d:
+        return None
+    return {
+        "id": eano, "result": d.get("outcome") or "", "why_similar": "", "score": round(doc["score"], 3),
+        "holding": d.get("holding"), "agency": d.get("agency"), "decided": d.get("date"),
+        "case_type": d.get("case_type"), "gist": d.get("gist"),
+        "excerpt": _clean_excerpt(doc["text"]), "source": f"新北市政府訴願決定書 案號 {eano}（{d.get('doc_no') or ''}）{d.get('url') or ''}",
     }
 
 
