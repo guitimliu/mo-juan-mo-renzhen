@@ -1,7 +1,7 @@
 # HANDOFF — 給下一個 session
 
 更新：2026-09-12 16:10。上一個 session 完成資料盤點、案例選定、五人分工、A 角色工作包；**本 session（hackathon-c8）完成 `backend/`（stub 管線）並把 E 的前端接上真 API；平行 session（aws-test-95）同時把 `bedrock.py` 四段（OCR／Extract／Retrieval／Generate）接上 AWS（KB `ZOMMOWFOT2`）**。
-團隊 repo：https://github.com/guitimliu/mo-juan-mo-renzhen，分支 **`backend`**（已 push；PR 待貴哥合併到 main）。本機 clone 在 `mo-juan-mo-renzhen/`。
+團隊 repo：https://github.com/guitimliu/mo-juan-mo-renzhen，**PR #2 已於 2026-09-12 20:54 合併進 main（`daeeca2`）**；`backend` 分支保留，之後改動 pull 後在 backend 繼續或直接對 main 開 PR；EC2 部署 checkout main。本機 clone 在 `mo-juan-mo-renzhen/`。
 **現況：WebSocket 即時進度（子步驟＋S4 草稿串流，輪詢改備援）已加；個資前處理（取代法，S1 後姓名→甲○○、證號／電話／地址／生日遮罩，S4 還原姓名，對照表不出本機）已加；帳密登入（`AUTH_USERNAME`／`AUTH_PASSWORD`，不設＝免登入）與前端「一鍵 Demo」已加；模型預設 Sonnet 5、可用環境變數設定、帳戶不可用自動降級 4.6；`ADAPTER=bedrock` 端到端已通，Generate 實測 S5 29/31（剩 2 分是正本才有的 LINE 對話內容，輸入文件沒有）；`docker compose up --build` 可一鍵起前後端（§2.5）。** 已合併 E 的前端 v2（main）：送達日期欄位、PDF／Word 匯出、隱藏第 6 步。
 
 ---
@@ -133,3 +133,48 @@ commit 前跑過一輪 5 面向 × 2 反駁者的對抗審查（85 個 agent）�
 - WeasyPrint 不套頁面 CSS 進 SVG（只影響報告 PDF，與本次無關）。
 - `07_檢核.py` 用檔名含中文與數字開頭，import 時用 `importlib.util.spec_from_file_location`。
 - 資料集裡沒有真實訴願書，01/02 是逆推的模擬件；主辦方 Q&A 若拿到真實範本，優先替換。
+
+## §V 繳交影片（2026-09-13 交接，aws-test session）
+
+**現況**：影片產線全部可重現（`video/README.md`）。唯一未完成：把修好的 Demo 場景接回成品。機器在 ffmpeg 接回時當機兩次（疑記憶體），所以改用保守設定。
+
+| 檔案（都在 `video/`） | 狀態 |
+|---|---|
+| `narration.json` ＋ `assets/generated/tts/*.wav`（12 句，Leda） | ✅ 每句經 Gemini 聽寫驗證（`tts_report.md`） |
+| `assets/generated/demo_cfr.mp4`（Playwright 實錄 164 s） | ✅ |
+| `remotion/out/final.mp4`（v1，4:49；**音軌正確**，3:23–3:43 畫面黑） | ✅ 音軌沿用 |
+| `remotion/out/demo_scene.mp4`（修正後 Demo 場景，3018 幀） | ✅ 已驗證不黑 |
+| `remotion/out/final_v2.mp4`（＝`out/mjmr_demo_video.mp4`） | ✅ 2026-09-13 以下方分段流程接回完成；8669 幀 / 289 s；已驗證 122–224 s 不黑、150 s 字幕單層、有聲。預覽版 `final_v2_preview.mp4`（CRF 24，20 MB） |
+
+**黑畫面根因**：Remotion `OffthreadVideo` 的 `endAt` 以合成幀數計、不隨 `playbackRate` 換算，0.72× 慢放段 25 s 後無畫面。已修（`c2b5954`：移除 endAt、尾端 `<Freeze>`、加 `Demo` 獨立 composition）。
+
+**已完成的分段、低記憶體作法（單一 filter_complex 版本讓機器當機三次，勿再用）**，在 `video/remotion/` 逐步執行，每步獨立、各約 1–3 分鐘，記憶體無壓力。**注意：步驟 2 不要燒 `06b.ass`**——`demo_scene.mp4` 是在 `509e23d` 之後 render 的，Remotion 已內建 06b 字幕（`scenes.tsx` 的 `<Narration id="06b_demo_wait">`），再燒會變雙層字幕（第一次接回時即踩到，已重做 partB）：
+```bash
+# 0. 音軌（沿用 v1，含全部旁白）
+ffmpeg -y -i out/final.mp4 -vn -c:a copy out/audio.m4a
+# 1. 前段視訊 frame 0–3674（0–122.5 s）
+ffmpeg -y -i out/final.mp4 -an -vf "trim=end_frame=3675,setpts=PTS-STARTPTS" -c:v libx264 -preset veryfast -threads 1 -crf 18 -pix_fmt yuv420p out/partA.mp4
+# 2. Demo 段：修好的 demo_scene.mp4 重編成同參數（字幕已由 Remotion 內建，勿再燒 06b.ass）
+ffmpeg -y -i out/demo_scene.mp4 -an -c:v libx264 -preset veryfast -threads 1 -crf 18 -pix_fmt yuv420p out/partB.mp4
+# 3. 後段視訊 frame 6693–end（223.1 s–）
+ffmpeg -y -i out/final.mp4 -an -vf "trim=start_frame=6693,setpts=PTS-STARTPTS" -c:v libx264 -preset veryfast -threads 1 -crf 18 -pix_fmt yuv420p out/partC.mp4
+# 4. 串接（同編碼，不重編碼，幾乎不吃記憶體）＋ 合音軌
+printf "file 'partA.mp4'\nfile 'partB.mp4'\nfile 'partC.mp4'\n" > out/concat.txt
+ffmpeg -y -f concat -safe 0 -i out/concat.txt -i out/audio.m4a -c copy -movflags +faststart out/final_v2.mp4
+```
+驗證：`ffprobe` 總長 ≈ 289 s；`ffmpeg -ss 205 -i out/final_v2.mp4 -frames:v 1 x.png` 不黑；150 s 有 06b 字幕；`-af volumedetect` 140／180／200 s 有聲。完成後 `cp out/final_v2.mp4 ../out/mjmr_demo_video.mp4`；要傳人看再出 CRF 24 預覽版（< 30 MB）。
+若仍當機：先 `docker stop $(docker ps -q)` 釋放記憶體，並檢查 `%UserProfile%\.wslconfig` 的 `memory=` 上限。
+
+**若要改內容**：改 `narration.json` → `python tts.py`（只重生變動句）→ 複製 wav 到 `remotion/public/tts/` → 重建 `src/timeline.json` → `npm run render`（全片 45 分鐘；或只 render `Demo` composition 再用上面 ffmpeg 接回）。金鑰在 `video/.env`（gitignore）。
+
+## §VI 歷史決定書擴充（2026-09-13 上午，aws-test session）
+
+- **資料**：法制局網站 26,607 篇訴願決定書（2004–2026/09）已抓回（官方同意；`backend/tools/crawl_ntpc_appeals.py`，13 分鐘）。原始資料在本機 `data/ntpc_appeals/`（gitignore，810 MB raw + 188 MB `decisions.jsonl`）；repo 內有精簡版 `data/decisions_slim.jsonl.gz`（10.6 MB，`tools/build_decisions_slim.py`）與法條索引 `data/law_index.json`（`tools/analyze_ntpc_appeals.py`）。
+- **分析**：`docs/ntpc_appeals_analysis.md`（量化：年度／案型／機關／條文／77 條款次／洗防法 757 篇）、`docs/ntpc_appeals_qualitative.md`（Codex 對 64 篇樣本的駁回骨架、撤銷理由分類、檢索優先序、生成規則）。發現：網站「相關法條」欄位只列程序法，實體條文要從全文抽；`statutes.json` 缺很多高頻法規全文（環境教育法、都市計畫法、土地稅法、社會救助法…，見分析 §4.1）。
+- **後端（已接、測試 132 綠、bedrock 端到端 110 s／S5 27/31）**：
+  - `app/law_index.py`：案由 → 同案型歷史高頻實體條文；`statutes_for()` 追加（`basis: 歷史決定書統計`、`note: 同案型 N 篇中 M% 引用`）；S3 多 `history` 欄位（篇數＋裁決分布），`note` 也帶。
+  - `app/decisions.py`：精簡索引；KB 撈回的網站版決定書（metadata `doc_no`＝案號）由 `historical_entry()` 補主文／機關／日期／案型／網址；`own_case_ids()` 也會排除網站版的本案（demo 113-16 ＝ 網站 1137101298，已驗證兩者都排除）。
+- **KB**：26,607 篇已 `tools/export_ntpc_appeals_kb.py` → `s3://mo-juan-mo-renzhen-kb-text/新北訴願決定書/<年>/<案號>.txt`（metadata `source=ntpc_web`、`doc_no`=案號、`year` 民國、`case_type`、`outcome`、`agency`、`issued`）；ingestion job `OB93DQMTUE` 於 10:47 啟動（26,748 掃描、37 失敗、進行中）。完成後相似案會大量來自網站版；主辦方 141 篇與網站版重複的案子可能同時出現（不同 id），之後可用 `decisions_slim` 的 `doc_no` 去重。
+- **前端待接**：S3 `history`（「歷史同案型 757 篇：駁回 43%…」）與法條 `basis/note`、相似案 `source` 內的網址。
+- **儲存層已做（PostgreSQL）**：`app/db.py`＋`store.py` 落地與重啟還原；compose 加 `db`（postgres:16，volume `pgdata`）；草稿版本 API（`PUT /draft`、`/drafts/current`、`/restore`）、影像回看 API；設計文件 `docs/persistence_design.md`；實測 bedrock 案件 → 存兩版草稿 → `docker compose restart backend` → 案件／S1–S5／草稿／影像全部還在。**EC2 部署要 `docker compose up -d --build`（多了 db 服務與 Dockerfile 新增的 law_index.json／decisions_slim.jsonl.gz）。** 前端待接：案件列表（「我的案件」）、草稿儲存／版本／還原三顆鍵、envelope 的 `draft`。
+- 憑證：`.env` 已換 2026-09-13 上午的 token（仍是臨時 ASIA…）；EC2 `i-041e003416dd15245`（us-west-2）上的 `.env` 要組員同步換；掛 IAM role 的做法寫在對話紀錄，Workshop 帳戶未必允許。

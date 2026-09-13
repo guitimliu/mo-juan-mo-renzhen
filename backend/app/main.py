@@ -12,11 +12,11 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, BackgroundTasks, FastAPI, File, Form, HTTPException, Response, UploadFile, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import auth, pipeline, rules, settings
+from . import auth, db as dbmod, pipeline, rules, settings
 from .adapters import bedrock, stub
 from .adapters.base import AdapterSet, UploadedImage
 from .store import CaseStore
@@ -49,6 +49,11 @@ def check_data_files() -> None:
         raise RuntimeError(f"DATA_DIR={settings.DATA_DIR} 缺檔：{'、'.join(missing)}；請確認 repo 根目錄 data/ 已同步（或設 DATA_DIR）")
 
 
+class DraftBody(BaseModel):
+    content: dict           # S4 形狀（header／holding／facts／reasons／instruction／citations…），承辦人改過的版本
+    note: str | None = None
+
+
 class LoginBody(BaseModel):
     username: str
     password: str
@@ -57,7 +62,7 @@ class LoginBody(BaseModel):
 def create_app(adapters: AdapterSet | None = None, store: CaseStore | None = None, delay_s: float | None = None) -> FastAPI:
     check_data_files()
     adapters = adapters or build_adapters(settings.ADAPTER)
-    store = store or CaseStore()
+    store = store or CaseStore(dbmod.connect())
     delay = stage_delay(adapters.mode) if delay_s is None else delay_s
 
     app = FastAPI(title="訴願 POC backend", version="0.1.0")
@@ -80,7 +85,7 @@ def create_app(adapters: AdapterSet | None = None, store: CaseStore | None = Non
 
     @api.get("/health")
     async def health():
-        info = {"status": "ok", "adapter_mode": adapters.mode, "auth_required": auth.enabled()}
+        info = {"status": "ok", "adapter_mode": adapters.mode, "auth_required": auth.enabled(), "db": store.db is not None}
         if adapters.mode == "bedrock":
             info["models"] = bedrock.model_config()      # 各階段設定／實際模型（含降級狀態），讓前端與 demo 看得到
         return info
@@ -122,7 +127,76 @@ def create_app(adapters: AdapterSet | None = None, store: CaseStore | None = Non
         case = store.get(case_id)
         if case is None:
             raise HTTPException(404, f"case {case_id} not found")
-        return case.to_envelope()
+        env = case.to_envelope()
+        if store.db:
+            cur = store.db.get_draft(case_id)
+            env["draft"] = {"version": cur["version"], "edited_at": cur["edited_at"], "edited_by": cur["edited_by"], "note": cur["note"]} if cur else None
+        return env
+
+    # ---- 持久層（DATABASE_URL 有設才有內容；docs/persistence_design.md）----
+    def need_db():
+        if not store.db:
+            raise HTTPException(501, "未設定 DATABASE_URL，草稿／檔案儲存功能未啟用")
+
+    @api.get("/cases/{case_id}/files/{field}")
+    async def get_file(case_id: str, field: str, _user: str | None = auth.AuthDep):
+        """回看上傳影像：field＝petition_image／disposition_image。"""
+        need_db()
+        f = store.db.get_file(case_id, field)
+        if not f:
+            raise HTTPException(404, f"{case_id}/{field} not found")
+        return Response(content=bytes(f["content"]), media_type=f["content_type"] or "application/octet-stream",
+                        headers={"Content-Disposition": f'inline; filename="{f["filename"] or field}"'})
+
+    @api.get("/cases/{case_id}/drafts")
+    async def list_drafts(case_id: str, _user: str | None = auth.AuthDep):
+        need_db()
+        if store.get(case_id) is None:
+            raise HTTPException(404, f"case {case_id} not found")
+        return {"case_id": case_id, "drafts": store.db.list_drafts(case_id)}
+
+    @api.get("/cases/{case_id}/drafts/current")
+    async def current_draft(case_id: str, _user: str | None = auth.AuthDep):
+        """目前生效版本：承辦人存過就是最新（或還原指定的）版本；沒有就回 S4 原稿（version 0）。"""
+        need_db()
+        case = store.get(case_id)
+        if case is None:
+            raise HTTPException(404, f"case {case_id} not found")
+        cur = store.db.get_draft(case_id)
+        if cur:
+            return {"case_id": case_id, "version": cur["version"], "content": cur["content"], "note": cur["note"],
+                    "edited_by": cur["edited_by"], "edited_at": cur["edited_at"]}
+        return {"case_id": case_id, "version": 0, "content": case.stages["S4"].data, "note": "AI 原稿", "edited_by": None, "edited_at": None}
+
+    @api.get("/cases/{case_id}/drafts/{version}")
+    async def get_draft(case_id: str, version: int, _user: str | None = auth.AuthDep):
+        need_db()
+        d = store.db.get_draft(case_id, version)
+        if not d:
+            raise HTTPException(404, f"draft {case_id} v{version} not found")
+        return {"case_id": case_id, "version": d["version"], "content": d["content"], "note": d["note"],
+                "edited_by": d["edited_by"], "edited_at": d["edited_at"], "is_current": bool(d["is_current"])}
+
+    @api.put("/cases/{case_id}/draft")
+    async def save_draft(case_id: str, body: DraftBody, user: str | None = auth.AuthDep):
+        """承辦人存修改版：每次一個新版本並設為 current。"""
+        need_db()
+        if store.get(case_id) is None:
+            raise HTTPException(404, f"case {case_id} not found")
+        row = store.db.add_draft(case_id, body.content, body.note, user)
+        return {"case_id": case_id, "version": row["version"], "edited_at": row["edited_at"]}
+
+    @api.post("/cases/{case_id}/drafts/{version}/restore")
+    async def restore_draft(case_id: str, version: int, _user: str | None = auth.AuthDep):
+        """切回某版本；version=0 ＝ 還原 AI 原稿（清掉 current）。"""
+        need_db()
+        if store.get(case_id) is None:
+            raise HTTPException(404, f"case {case_id} not found")
+        if version == 0:
+            store.db.clear_current(case_id)
+        elif not store.db.set_current(case_id, version):
+            raise HTTPException(404, f"draft {case_id} v{version} not found")
+        return {"case_id": case_id, "current_version": version}
 
     @app.websocket("/api/cases/{case_id}/ws")
     async def case_ws(ws: WebSocket, case_id: str):

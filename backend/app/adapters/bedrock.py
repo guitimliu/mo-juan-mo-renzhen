@@ -25,7 +25,7 @@ import re
 import time
 from functools import lru_cache
 
-from .. import events, rules, settings
+from .. import decisions, events, law_index, rules, settings
 from . import stub as _stub   # 只借讀檔工具（statutes_table／petitions），不用它的假資料
 from .base import UploadedImage
 
@@ -78,7 +78,7 @@ def get_client():
         import boto3  # 只有 bedrock 模式才需要
         from botocore.config import Config
         _client = boto3.client("bedrock-runtime", region_name=REGION,
-                               config=Config(read_timeout=120, retries={"max_attempts": 0}))
+                               config=Config(read_timeout=180, connect_timeout=10, retries={"max_attempts": 0}))
     return _client
 
 
@@ -155,7 +155,7 @@ async def converse(client, model_id: str, messages: list[dict], system: str | No
             log.info("bedrock %s in=%s out=%s", model_id, usage.get("inputTokens"), usage.get("outputTokens"))
             return "".join(c.get("text", "") for c in resp["output"]["message"]["content"])
         except Exception as e:  # botocore ClientError 也走這裡；用名稱判斷免得 import botocore
-            err = getattr(e, "response", {}).get("Error", {})
+            err = (getattr(e, "response", None) or {}).get("Error") or {}      # ReadTimeoutError 等 response 是 None
             code, message = err.get("Code", type(e).__name__), str(err.get("Message") or e)
             if _is_model_unavailable(code, message) and FALLBACK_MODEL_ID and model_id != FALLBACK_MODEL_ID:
                 log.warning("模型 %s 此帳戶不可用（%s），降級改用 %s", model_id, code, FALLBACK_MODEL_ID)
@@ -164,8 +164,9 @@ async def converse(client, model_id: str, messages: list[dict], system: str | No
                         _model_fallbacks[k] = FALLBACK_MODEL_ID
                 model_id = kwargs["modelId"] = FALLBACK_MODEL_ID
                 continue
-            if code not in ("ThrottlingException", "ServiceUnavailableException", "ModelNotReadyException") \
-                    or attempt == MAX_RETRIES:
+            retryable = code in ("ThrottlingException", "ServiceUnavailableException", "ModelNotReadyException", "InternalServerException",
+                                 "ReadTimeoutError", "ConnectTimeoutError", "EndpointConnectionError", "ConnectionClosedError")
+            if not retryable or attempt == MAX_RETRIES:
                 raise
             backoff = 2 ** attempt
             log.warning("bedrock %s，%ss 後重試（%d/%d）", code, backoff, attempt + 1, MAX_RETRIES)
@@ -512,7 +513,7 @@ def own_case_ids(s2: dict) -> set[str]:
         blob = json.dumps(row.get("原處分") or {}, ensure_ascii=False)
         if any(d in blob for d in digits):
             own.add(cid)
-    return own
+    return own | decisions.own_by_disposition(digits)     # 26,607 篇歷史決定書也要排除
 
 
 def similar_entry(doc: dict) -> dict | None:
@@ -520,12 +521,25 @@ def similar_entry(doc: dict) -> dict | None:
     cid = str(md.get("doc_no") or "")
     row = _stub.petitions().get(cid)
     if not row:
-        return None
+        return historical_entry(cid, doc)
     return {
         "id": cid, "result": row["裁決類別"], "why_similar": "", "score": round(doc["score"], 3),
         "holding": row.get("主文"), "agency": (row.get("角色") or {}).get("原處分機關"), "decided": row.get("發文日期"),
         "case_type": row.get("案件類型"), "gist": row.get("要旨"),
         "excerpt": _clean_excerpt(doc["text"]), "source": row.get("來源檔") or _source(doc),
+    }
+
+
+def historical_entry(eano: str, doc: dict) -> dict | None:
+    """KB 裡來自法制局網站的決定書（metadata.doc_no＝案號）→ 用精簡索引補欄位。"""
+    d = decisions.get(eano)
+    if not d:
+        return None
+    return {
+        "id": eano, "result": d.get("outcome") or "", "why_similar": "", "score": round(doc["score"], 3),
+        "holding": d.get("holding"), "agency": d.get("agency"), "decided": d.get("date"),
+        "case_type": d.get("case_type"), "gist": d.get("gist"),
+        "excerpt": _clean_excerpt(doc["text"]), "source": f"新北市政府訴願決定書 案號 {eano}（{d.get('doc_no') or ''}）{d.get('url') or ''}",
     }
 
 
@@ -561,7 +575,16 @@ def statutes_for(s2: dict, similar: list[dict], precedents: list[dict]) -> list[
     blob = "".join((s2.get("appellant_claims") or []) + (s2.get("issues") or []))
     if re.search(r"故意|過失|不知情|不知道|受騙|被騙|認識", blob):          # 責任條件之爭 → 行政罰法 7
         add(("行政罰法", "7"))
-    return [{k: table[ref][k] for k in ("law", "article", "text", "version_date", "source")} for ref in picked[:8]]
+    out = [{k: table[ref][k] for k in ("law", "article", "text", "version_date", "source")} for ref in picked[:8]]
+    # 歷史同案型決定書高頻實體條文（26,607 篇統計，data/law_index.json）：補處分書沒寫但實務常一併引用的條文
+    for h in law_index.historical_statutes(s2.get("case_type"), exclude=set(picked)):
+        ref = (h["law"], h["article"])
+        if ref in table:
+            row = {k: table[ref][k] for k in ("law", "article", "text", "version_date", "source")}
+            row["basis"] = "歷史決定書統計"
+            row["note"] = f"同案型歷史決定書 {h['cases']} 篇中 {h['share']:.0%} 引用（{h['count']} 篇）"
+            out.append(row)
+    return out
 
 
 class BedrockRetrieval:
@@ -630,12 +653,19 @@ class BedrockRetrieval:
         for x in similar:
             x["why_similar"] = screened["why_similar"].get(x["id"]) or f"同為{x['case_type']}，結果{x['result']}"
 
+        history = law_index.profile(s2.get("case_type"))
+        hist_note = ""
+        if history:
+            oc = history["outcome"]; n = history["cases"] or 1
+            hist_note = f"；歷史同案型「{history['case_type']}」{history['cases']} 篇：" + "、".join(
+                f"{k} {oc.get(k, 0) / n:.0%}" for k in ("駁回", "撤銷", "不受理"))
         return {
             "statutes": statutes_for(s2, similar, precedents),
             "precedents": precedents,
             "interpretations": interpretations,
             "similar_cases": similar,
-            "note": f"KB {self.kb_id} 向量檢索（Titan v2）；篩選模型 {resolve_model(self.model_id)}；法條查 statutes.json；已排除本案決定書 {sorted(own) or '無'}",
+            "history": history,
+            "note": f"KB {self.kb_id} 向量檢索（Titan v2）；篩選模型 {resolve_model(self.model_id)}；法條查 statutes.json＋歷史決定書法條索引；已排除本案決定書 {sorted(own) or '無'}{hist_note}",
         }
 
 

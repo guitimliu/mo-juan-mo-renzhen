@@ -121,6 +121,20 @@ tests/
 - 開關 `PII_MASK`：`auto`（預設；bedrock 開、stub 關）／`1`／`0`。
 - 實測（demo 影像含虛構的 0912-345-678、A123456789、北新路二段88號5樓）：S1～S3 envelope 完全不含原值，S4 還原「訴願人王小明」，S2.5 四項 PASS，全鏈 103 s。影像本身仍須送 OCR（無法避免），demo 影像是虛構資料。
 
+## 持久層（PostgreSQL，`app/db.py`）
+
+- `DATABASE_URL` 有設才啟用（docker compose 內建 `db` 服務，預設 `postgresql+psycopg://mjmr:mjmr@db:5432/mjmr`，資料在 volume `pgdata`）；沒設＝純記憶體（pytest、本機 stub）。`GET /api/health` 的 `db` 欄位顯示狀態。
+- 落地內容：`cases`＋`stage_results`（每次 `Case.touch()` upsert，六階段 data 全存）、`case_files`（上傳影像 bytea）、`drafts`（承辦人修改版，版本遞增）。**PII 對照表不進 DB**（重啟後 S4 真名還原要重跑 S1）。
+- 重啟後：`GET /api/cases` 列表與 `GET /api/cases/{id}` 都從 DB 還原；重啟時還在 `running` 的案件標 `error`（「後端重啟，處理中斷」）。envelope 多一個 `draft`（目前生效版本摘要或 null）。
+- 草稿 API（承辦人回頭編輯同一案）：
+  - `GET /api/cases/{id}/drafts/current` — 目前生效版（存過就是最新／還原指定的版本；沒存過回 S4 原稿 `version: 0`）
+  - `PUT /api/cases/{id}/draft` `{content, note?}` — 存新版本並設為 current（`content` 為 S4 形狀）
+  - `GET /api/cases/{id}/drafts`、`GET /api/cases/{id}/drafts/{v}` — 版本列表／某版
+  - `POST /api/cases/{id}/drafts/{v}/restore` — 切回某版；`v=0` ＝ 還原 AI 原稿
+  - `GET /api/cases/{id}/files/{petition_image|disposition_image}` — 回看上傳影像
+  - 未設 DATABASE_URL 時這些回 501。
+- 換 DB：改 `DATABASE_URL`（RDS Postgres 同一個字串格式），程式不用動；表由 `metadata.create_all` 建。測試 `tests/test_db.py` 用 SQLite 走同一套程式。
+
 ## 即時進度（WebSocket，`app/events.py`）
 
 - 前端建案後開 `WS /api/cases/{id}/ws`；輪詢降為 10 s 備援（WS 連不上仍 1.5 s）。nginx `/api/` 已加 Upgrade 標頭。
