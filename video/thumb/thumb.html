@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1280, initial-scale=1">
+  <title>莫捲莫認真｜訴願決定書草稿助理</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 1280px; height: 720px; margin: 0; overflow: hidden; }
+    body { font-family: 'Noto Sans TC','Noto Serif TC','PingFang TC','Microsoft JhengHei',sans-serif; }
+    .thumbnail { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #063e33; color: #f7f8f6; isolation: isolate; }
+    .backdrop { position: absolute; z-index: -1; left: 730px; top: -100px; width: 700px; height: 950px; background: #e8efeb; transform: rotate(12deg); }
+    .ring { position: absolute; z-index: -1; width: 700px; height: 700px; left: 920px; top: -290px; border: 1px solid #73978d; border-radius: 50%; }
+    .event { position: absolute; left: 54px; top: 38px; display: flex; align-items: center; gap: 14px; font-size: 21px; font-weight: 700; letter-spacing: 1px; color: #e8efeb; }
+    .event::before { content: ''; width: 7px; height: 23px; background: #c9a35a; }
+    .team { position: absolute; right: 42px; top: 36px; color: #263d36; font-size: 24px; font-weight: 900; letter-spacing: 3px; }
+    .copy { position: absolute; left: 54px; top: 132px; z-index: 2; }
+    .product { margin: 0 0 16px; color: #e8efeb; font-size: 31px; font-weight: 700; letter-spacing: 2px; }
+    h1 { margin: 0; font-size: 100px; line-height: 1.16; letter-spacing: -3px; font-weight: 900; }
+    h1 span { display: block; }
+    h1 .time { display: flex; align-items: baseline; gap: 18px; color: #c9a35a; font-size: 94px; letter-spacing: 0; }
+    .time b { font-size: 168px; line-height: 1.05; font-weight: 900; letter-spacing: -8px; }
+    .topic { display: inline-block; margin-top: 35px; padding: 9px 17px; border: 1px solid #73978d; color: #e8efeb; font-size: 22px; letter-spacing: 3px; }
+    .screen { position: absolute; top: 161px; left: 725px; width: 850px; height: 426px; overflow: hidden; border: 7px solid #f7f8f6; border-radius: 17px; background: #f7f8f6; transform: rotate(-4deg); box-shadow: 0 26px 50px #001f3260; }
+    .screen img { position: absolute; width: 1050px; height: auto; max-width: none; left: -123px; top: -44px; display: block; }
+    .source-label { position: absolute; right: 28px; top: 565px; z-index: 3; padding: 16px 19px; border-radius: 9px; background: #063e33; color: #f7f8f6; box-shadow: 0 8px 22px #063e3320; font-size: 19px; font-weight: 700; white-space: nowrap; }
+    .source-label strong { color: #c9a35a; font-size: 23px; }
+    .footer { position: absolute; left: 0; bottom: 0; width: 1280px; height: 87px; background: #063e33; padding: 26px 54px 0; }
+    .footer::before { content: ''; position: absolute; left: 54px; right: 54px; top: 0; height: 1px; background: #73978d; opacity: .65; }
+    .footer p { margin: 0; font-size: 25px; font-weight: 700; letter-spacing: .7px; white-space: nowrap; color: #e8efeb; }
+  </style>
+</head>
+<body>
+  <main class="thumbnail" aria-label="莫捲莫認真，訴願決定書草稿助理，2 分鐘草稿有依據">
+    <div class="backdrop" aria-hidden="true"></div>
+    <div class="ring" aria-hidden="true"></div>
+    <div class="event">新北市 AI 黑客松 2026</div>
+    <div class="team">莫捲莫認真</div>
+    <section class="copy">
+      <p class="product">訴願決定書草稿助理</p>
+      <h1><span class="time"><b>2</b> 分鐘</span><span>草稿有依據</span></h1>
+      <div class="topic">法制局題目</div>
+    </section>
+    <div class="screen"><img src="ui_draft.png" alt="訴願決定書草稿助理的法源檢索畫面"></div>
+    <div class="source-label">AWS Bedrock ＋ <strong>26,607</strong> 篇歷史決定書</div>
+    <footer class="footer"><p>每一個引用都能點回來源・結論由規則決定・個資不出本機</p></footer>
+  </main>
+</body>
+</html>
