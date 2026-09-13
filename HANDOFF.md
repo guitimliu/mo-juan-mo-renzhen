@@ -144,7 +144,8 @@ commit 前跑過一輪 5 面向 × 2 反駁者的對抗審查（85 個 agent）�
 | `assets/generated/demo_cfr.mp4`（Playwright 實錄 164 s） | ✅ |
 | `remotion/out/final.mp4`（v1，4:49；**音軌正確**，3:23–3:43 畫面黑） | ✅ 音軌沿用 |
 | `remotion/out/demo_scene.mp4`（修正後 Demo 場景，3018 幀） | ✅ 已驗證不黑 |
-| `remotion/out/final_v2.mp4`（＝`out/mjmr_demo_video.mp4`） | ✅ 2026-09-13 以下方分段流程接回完成；8669 幀 / 289 s；已驗證 122–224 s 不黑、150 s 字幕單層、有聲。預覽版 `final_v2_preview.mp4`（CRF 24，20 MB） |
+| `remotion/out/final_v2.mp4` | ✅ v2（已被 v3 取代） |
+| **`remotion/out/final_v3.mp4`＝`video/out/mjmr_demo_video.mp4`** | ✅ **2026-09-13 12:00 現行版**：8987 幀／**299.6 s（≤ 6 分鐘硬限制）**；莫捲莫認真、字幕阿拉伯數字（口白仍中文數字）、Demo 段新增 06c 旁白、05 提 CloudFront／彈性 IP、ElevenLabs 配樂（`mix_music.sh`，Demo 段起訖 132.93–233.53 s）。預覽 `mjmr_demo_video_preview.mp4`（CRF 24，24 MB） |
 
 **黑畫面根因**：Remotion `OffthreadVideo` 的 `endAt` 以合成幀數計、不隨 `playbackRate` 換算，0.72× 慢放段 25 s 後無畫面。已修（`c2b5954`：移除 endAt、尾端 `<Freeze>`、加 `Demo` 獨立 composition）。
 
@@ -165,7 +166,7 @@ ffmpeg -y -f concat -safe 0 -i out/concat.txt -i out/audio.m4a -c copy -movflags
 驗證：`ffprobe` 總長 ≈ 289 s；`ffmpeg -ss 205 -i out/final_v2.mp4 -frames:v 1 x.png` 不黑；150 s 有 06b 字幕；`-af volumedetect` 140／180／200 s 有聲。完成後 `cp out/final_v2.mp4 ../out/mjmr_demo_video.mp4`；要傳人看再出 CRF 24 預覽版（< 30 MB）。
 若仍當機：先 `docker stop $(docker ps -q)` 釋放記憶體，並檢查 `%UserProfile%\.wslconfig` 的 `memory=` 上限。
 
-**若要改內容**：改 `narration.json` → `python tts.py`（只重生變動句）→ 複製 wav 到 `remotion/public/tts/` → 重建 `src/timeline.json` → `npm run render`（全片 45 分鐘；或只 render `Demo` composition 再用上面 ffmpeg 接回）。金鑰在 `video/.env`（gitignore）。
+**若要改內容（v3 流程）**：改 `narration.json`（`text`＝口白中文數字、`subtitle`＝字幕阿拉伯數字，手寫）→ `python tts.py`（只重生變動句；若聽寫多字要 `--only <id> --force`）→ `cp assets/generated/tts/*.wav remotion/public/tts/` → `python build_timeline.py` → `npx remotion render src/index.tsx Main out/main_vN.mp4 --codec h264 --crf 18 --concurrency 3`（約 70 分鐘）→ `bash mix_music.sh out/main_vN.mp4 out/final_vN.mp4 <demo_from> <demo_to>`（demo_from ＝ 前五場景 `round((duration+1.2)*30)` 之和 ÷ 30；demo_to ＝ +100.6）→ 檢查總長 ≤ 300 s。所有旁白都在 Remotion 內，**不再需要 06b.ass 燒字幕**。配樂 `assets/generated/music/{talk,demo}.mp3` 由 ElevenLabs Music API 生成（金鑰 `video/.env` `ELEVENLABS_API_KEY`，starter 方案一次一個請求）。金鑰在 `video/.env`（gitignore）。
 
 ## §VI 歷史決定書擴充（2026-09-13 上午，aws-test session）
 
