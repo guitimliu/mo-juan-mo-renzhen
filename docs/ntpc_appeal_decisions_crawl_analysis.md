@@ -45,3 +45,11 @@
 ## 建議順序
 1. 先抓 2020–2026（約 9.3k 篇，~2 小時）驗證解析與 KB 效果，再回補 2004–2019。
 2. 工具放 `backend/tools/crawl_ntpc_appeals.py`（list → raw → parse 三個子命令），資料落 `data/ntpc_appeals/`（gitignore raw）。
+
+## 執行結果（2026-09-13，已完成）
+- 工具：`backend/tools/crawl_ntpc_appeals.py`（`list`/`fetch`/`parse`，可續跑）；KB 轉檔：`backend/tools/export_ntpc_appeals_kb.py`（尚未匯入 KB）。
+- 官方已同意抓取；用 10 並行，列表 1,334 頁 + 明細 26,567 篇共 13.3 分鐘，0 失敗（約 33 req/s）。
+- 產出（本機，gitignore）：`data/ntpc_appeals/index.jsonl`（26,607 筆）、`raw/<年>/<案號>.html`（810 MB）、`decisions.jsonl`（188 MB，全文中位數 2,623 字）。
+- 解析覆蓋：outcome 駁回 14,973／不受理 8,915／撤銷 2,614／其他 105；缺 case_type 217、缺 agency 1,433（早期版面）、缺相關法條 166。
+- 前 5 大案型：廢棄物清理法 6,657、空氣污染防制法 2,878、建築法 1,786、噪音管制法 1,306、地價稅 1,273；洗錢防制法 757。
+- 增量更新：`python tools/crawl_ntpc_appeals.py list --years 2026 && python tools/crawl_ntpc_appeals.py fetch && python tools/crawl_ntpc_appeals.py parse`。
