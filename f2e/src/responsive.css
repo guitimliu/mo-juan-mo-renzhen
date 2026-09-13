@@ -125,7 +125,7 @@
 .new-case { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 6px; color: #fff; }
 .new-case:hover:not(:disabled) { background: #334b65; }
 .user { flex-wrap: wrap; }
-.user .logout { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; height: auto; min-height: 40px; padding: 8px; margin-left: auto; border: 1px solid #64788e; border-radius: 6px; color: #e0e7ef; }
+.user .logout { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; height: auto; min-height: 40px; padding: 8px; margin-left: auto; border: 1px solid #64788e; border-radius: 6px; background: #2c415d; color: #fff; }
 @media (max-width: 1150px) and (min-width: 951px) {
   .workspace { --sidebar-width: 195px; }
 }
@@ -141,3 +141,5 @@
 .pipeline .step-number { width: 2rem; height: 2rem; white-space: nowrap; }
 .service-date-control input[aria-invalid='true'] { border-color: #b34535; }
 .service-date-field .service-date-error { color: #b34535; margin-bottom: 0; }
+
+.user .logout:hover:not(:disabled) { background: #3b526f; border-color: #93a5be; color: #fff; }
