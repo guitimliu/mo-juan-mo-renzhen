@@ -101,6 +101,43 @@
   .live-wrap { margin: 0 18px 16px; padding: 12px; }
   .live-title { flex-wrap: wrap; }
   .step-actions { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
-  input[type='date'] { font-size: 16px; }
+  input[type='date'] { font-size:1.142857rem; }
   .toast { bottom: max(16px, env(safe-area-inset-bottom)); }
 }
+
+/* Keep sticky offsets in sync with header wrapping and text preferences. */
+.workspace { --sidebar-width: 230px; }
+.sidebar { width: var(--sidebar-width); height: 100dvh; }
+.sidebar > * { flex-shrink: 0; }
+.main-shell { margin-left: var(--sidebar-width); width: calc(100% - var(--sidebar-width)); padding-top: var(--topbar-height); }
+.topbar { position: fixed; top: 0; left: var(--sidebar-width); right: 0; height: auto; min-height: 66px; padding-top: 10px; padding-bottom: 10px; gap: 12px; flex-wrap: wrap; z-index: 40; }
+.pipeline { position: sticky; top: var(--topbar-height); z-index: 30; box-shadow: 0 4px 12px #182c4808; }
+.breadcrumb { min-width: 0; flex-wrap: wrap; }
+.breadcrumb a { padding: 8px 0; text-decoration: none; }
+.breadcrumb a:last-child { color: #394a5e; }
+.topbar-right { flex-wrap: wrap; margin-left: auto; }
+.organization { display: inline-flex; align-items: center; gap: 8px; }
+.font-controls { display: flex; align-items: center; gap: 4px; }
+.font-controls > span { margin-right: 4px; }
+.font-controls button { min-height: 36px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; }
+.font-controls button[aria-pressed='true'] { background: #e8f1ef; color: #246e69; border-color: #267e78; }
+.case-list-heading { align-items: center; gap: 12px; }
+.new-case { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 6px; color: #fff; }
+.new-case:hover:not(:disabled) { background: #334b65; }
+.user { flex-wrap: wrap; }
+.user .logout { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; height: auto; min-height: 40px; padding: 8px; margin-left: auto; border: 1px solid #64788e; border-radius: 6px; color: #e0e7ef; }
+@media (max-width: 1150px) and (min-width: 951px) {
+  .workspace { --sidebar-width: 195px; }
+}
+@media (max-width: 950px) {
+  .workspace { --sidebar-width: 0px; padding-top: var(--topbar-height); }
+  .main-shell { padding-top: 0; }
+  .sidebar { width: 100%; height: auto; }
+  .sidebar > .case-list-heading { display: flex; flex: 1 1 100%; padding: 0; }
+  .sidebar > .case-nav { display: flex; padding: 4px 0; }
+  .topbar-right > .organization { display: none; }
+}
+/* Two-digit step numbers remain legible at every text size. */
+.pipeline .step-number { width: 2rem; height: 2rem; white-space: nowrap; }
+.service-date-control input[aria-invalid='true'] { border-color: #b34535; }
+.service-date-field .service-date-error { color: #b34535; margin-bottom: 0; }

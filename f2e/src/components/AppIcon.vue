@@ -11,6 +11,7 @@ const paths: Record<string, string> = {
   edit: 'm15 4 5 5M4 20l5-1L21 7l-5-5L4 14v6ZM12 20h9',
   check: 'm5 12 4 4L19 6',
   list: 'm3 6 1 1 2-3M9 5h12M3 12l1 1 2-3M9 11h12M3 18l1 1 2-3M9 17h12',
+  logout: 'M9 4H4v16h5M10 12h11m-4-4 4 4-4 4',
   arrow: 'M5 12h14m-6-6 6 6-6 6',
   chevron: 'm9 5 7 7-7 7',
   download: 'M12 3v13m-5-5 5 5 5-5M4 17v4h16v-4',

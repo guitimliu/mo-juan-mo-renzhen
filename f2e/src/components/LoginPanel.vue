@@ -51,14 +51,14 @@ async function submit() {
 .login-brand{display:flex;align-items:center;gap:12px;margin-bottom:4px}
 .login-brand>div{min-width:0}
 .login-brand .brand-symbol{flex:none;width:44px;height:44px;border-radius:12px;background:var(--navy);color:#fff;display:grid;place-items:center}
-.login-brand b{display:block;font-size:16px;color:var(--navy)}
+.login-brand b{display:block;font-size:1.142857rem;color:var(--navy)}
 .login-brand small{display:block;color:var(--muted);overflow-wrap:anywhere}
-h1{margin:6px 0 0;font-size:22px;color:var(--navy)}
+h1{margin:6px 0 0;font-size:1.571429rem;color:var(--navy)}
 .muted{color:var(--muted);margin:0;line-height:1.6;overflow-wrap:anywhere}
 label{display:grid;gap:6px;font-weight:500;color:#3a4a62;min-width:0}
-input{box-sizing:border-box;width:100%;min-width:0;border:1px solid var(--border);border-radius:10px;padding:11px 12px;font-size:15px;font-family:inherit;background:#fbfcfe}
+input{box-sizing:border-box;width:100%;min-width:0;border:1px solid var(--border);border-radius:10px;padding:11px 12px;font-size:1.071429rem;font-family:inherit;background:#fbfcfe}
 input:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:var(--teal)}
-.login-error{display:flex;align-items:center;gap:8px;color:#a13c2e;background:#fdf1ee;border:1px solid #f3cfc7;border-radius:10px;padding:9px 12px;font-size:14px;overflow-wrap:anywhere}
+.login-error{display:flex;align-items:center;gap:8px;color:#a13c2e;background:#fdf1ee;border:1px solid #f3cfc7;border-radius:10px;padding:9px 12px;font-size:1rem;overflow-wrap:anywhere}
 .button{justify-content:center;width:100%}
 .login-foot{text-align:center;color:var(--muted);overflow-wrap:anywhere}
 @media (max-width:480px){.login-card{padding:24px 18px;border-radius:12px}}
