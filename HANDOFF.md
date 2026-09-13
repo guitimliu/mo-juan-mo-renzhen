@@ -144,26 +144,18 @@ commit 前跑過一輪 5 面向 × 2 反駁者的對抗審查（85 個 agent）�
 | `assets/generated/demo_cfr.mp4`（Playwright 實錄 164 s） | ✅ |
 | `remotion/out/final.mp4`（v1，4:49；**音軌正確**，3:23–3:43 畫面黑） | ✅ 音軌沿用 |
 | `remotion/out/demo_scene.mp4`（修正後 Demo 場景，3018 幀） | ✅ 已驗證不黑 |
-| `remotion/out/final_v2.mp4` | ❌ 未完成（兩次當機） |
+| `remotion/out/final_v2.mp4`（＝`out/mjmr_demo_video.mp4`） | ✅ 2026-09-13 以下方分段流程接回完成；8669 幀 / 289 s；已驗證 122–224 s 不黑、150 s 字幕單層、有聲。預覽版 `final_v2_preview.mp4`（CRF 24，20 MB） |
 
 **黑畫面根因**：Remotion `OffthreadVideo` 的 `endAt` 以合成幀數計、不隨 `playbackRate` 換算，0.72× 慢放段 25 s 後無畫面。已修（`c2b5954`：移除 endAt、尾端 `<Freeze>`、加 `Demo` 獨立 composition）。
 
-**剩下一步——改用分段、低記憶體作法（單一 filter_complex 版本讓機器當機三次，勿再用）**，在 `video/remotion/` 逐步執行，每步都是獨立小工作，可分次做：
+**已完成的分段、低記憶體作法（單一 filter_complex 版本讓機器當機三次，勿再用）**，在 `video/remotion/` 逐步執行，每步獨立、各約 1–3 分鐘，記憶體無壓力。**注意：步驟 2 不要燒 `06b.ass`**——`demo_scene.mp4` 是在 `509e23d` 之後 render 的，Remotion 已內建 06b 字幕（`scenes.tsx` 的 `<Narration id="06b_demo_wait">`），再燒會變雙層字幕（第一次接回時即踩到，已重做 partB）：
 ```bash
 # 0. 音軌（沿用 v1，含全部旁白）
 ffmpeg -y -i out/final.mp4 -vn -c:a copy out/audio.m4a
 # 1. 前段視訊 frame 0–3674（0–122.5 s）
 ffmpeg -y -i out/final.mp4 -an -vf "trim=end_frame=3675,setpts=PTS-STARTPTS" -c:v libx264 -preset veryfast -threads 1 -crf 18 -pix_fmt yuv420p out/partA.mp4
-# 2. Demo 段：修好的 demo_scene.mp4 燒 06b 字幕（字幕檔時間是主時間軸，需位移 -122.5 s；用 ass 的 Dialogue 時間減 122.5 或改用 setpts 前燒）
-python3 - <<'PY'
-import re
-s=open("../assets/generated/06b.ass",encoding="utf-8").read()
-def sh(m):
-    h,mi,se=m.group(1),m.group(2),m.group(3); t=int(h)*3600+int(mi)*60+float(se)-122.5
-    return f"{int(t//3600)}:{int(t%3600//60):02d}:{t%60:05.2f}"
-open("../assets/generated/06b_demo.ass","w",encoding="utf-8").write(re.sub(r"(\d):(\d\d):(\d\d\.\d\d)", sh, s))
-PY
-ffmpeg -y -i out/demo_scene.mp4 -an -vf "subtitles=../assets/generated/06b_demo.ass" -c:v libx264 -preset veryfast -threads 1 -crf 18 -pix_fmt yuv420p out/partB.mp4
+# 2. Demo 段：修好的 demo_scene.mp4 重編成同參數（字幕已由 Remotion 內建，勿再燒 06b.ass）
+ffmpeg -y -i out/demo_scene.mp4 -an -c:v libx264 -preset veryfast -threads 1 -crf 18 -pix_fmt yuv420p out/partB.mp4
 # 3. 後段視訊 frame 6693–end（223.1 s–）
 ffmpeg -y -i out/final.mp4 -an -vf "trim=start_frame=6693,setpts=PTS-STARTPTS" -c:v libx264 -preset veryfast -threads 1 -crf 18 -pix_fmt yuv420p out/partC.mp4
 # 4. 串接（同編碼，不重編碼，幾乎不吃記憶體）＋ 合音軌
